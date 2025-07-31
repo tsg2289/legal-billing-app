@@ -10,36 +10,49 @@ export default function BillingApp() {
   const [loading, setLoading] = useState(false);
 
   const handleGenerate = async () => {
+    // Validate required fields
+    if (!description.trim()) {
+      alert('Please enter a billing description.');
+      return;
+    }
+
     setLoading(true);
     try {
-      const prompt = `
-You are a legal billing assistant drafting time entries for a law firm. Based on the inputs below, write a detailed and professional billing entry suitable for a client invoice.
-
-The format should start with a time estimate (e.g., ".6: Reviewed..."), and the entry should clearly describe the task performed using formal legal billing language. Avoid vague or generic phrases. Be specific about what was reviewed, drafted, or discussed.
-
-Inputs:
-- Case Name: ${caseName}
-- File Number: ${fileNumber}
-- Task Description: ${description}
-
-Output:
-One line-item billing entry starting with a time estimate and followed by a clear, concise description.
-`;
-
       const response = await fetch('/api/generateBilling', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ 
+          fileNumber: fileNumber.trim(),
+          caseName: caseName.trim(),
+          description: description.trim()
+        })
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
 
       const data = await response.json();
       const newEntry = data.result?.trim() || '⚠️ No response';
 
-      setEntries((prev) => [...prev, { case: caseName, entry: newEntry }]);
+      setEntries((prev) => [...prev, { case: caseName || 'Unnamed Case', entry: newEntry }]);
       setDescription('');
     } catch (err) {
       console.error('❌ Error:', err);
-      setEntries((prev) => [...prev, { case: caseName, entry: '❌ Error generating billing entry.' }]);
+      let errorMessage = '❌ Error generating billing entry.';
+      
+      if (err.message.includes('API key')) {
+        errorMessage = '❌ AI service not configured. Please check your OpenAI API key.';
+      } else if (err.message.includes('Failed to fetch')) {
+        errorMessage = '❌ Cannot connect to server. Please check if the backend is running.';
+      } else if (err.message.includes('HTTP 400')) {
+        errorMessage = '❌ Invalid request. Please check your input.';
+      } else if (err.message.includes('HTTP 500')) {
+        errorMessage = '❌ Server error. Please try again later.';
+      }
+      
+      setEntries((prev) => [...prev, { case: caseName || 'Unnamed Case', entry: errorMessage }]);
     }
     setLoading(false);
   };
