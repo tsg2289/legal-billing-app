@@ -1,0 +1,134 @@
+class WordFlagService {
+  constructor() {
+    // Flagged words and their suggested alternatives
+    this.flaggedWords = new Map([
+      ['deposition', {
+        alternatives: ['examination', 'testimony', 'oral examination', 'sworn statement', 'examination under oath'],
+        reason: 'Client has flagged this word - consider using alternatives',
+        severity: 'warning'
+      }],
+      ['depose', {
+        alternatives: ['examine', 'question under oath', 'take testimony', 'conduct examination'],
+        reason: 'Client has flagged this word - consider using alternatives',
+        severity: 'warning'
+      }],
+      ['deposing', {
+        alternatives: ['examining', 'questioning under oath', 'taking testimony', 'conducting examination'],
+        reason: 'Client has flagged this word - consider using alternatives',
+        severity: 'warning'
+      }],
+      ['deposed', {
+        alternatives: ['examined', 'questioned under oath', 'testified', 'gave sworn statement'],
+        reason: 'Client has flagged this word - consider using alternatives',
+        severity: 'warning'
+      }]
+    ]);
+  }
+
+  /**
+   * Check text for flagged words and return suggestions
+   * @param {string} text - Text to check
+   * @returns {Array} Array of flagged word objects with suggestions
+   */
+  checkText(text) {
+    if (!text || typeof text !== 'string') {
+      return [];
+    }
+
+    const flags = [];
+    const lowerText = text.toLowerCase();
+    
+    for (const [word, config] of this.flaggedWords) {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      const matches = text.match(regex);
+      
+      if (matches) {
+        flags.push({
+          word: word,
+          matches: matches,
+          count: matches.length,
+          alternatives: config.alternatives,
+          reason: config.reason,
+          severity: config.severity,
+          positions: this.findWordPositions(text, word)
+        });
+      }
+    }
+    
+    return flags;
+  }
+
+  /**
+   * Find positions of flagged words in text
+   * @param {string} text - Text to search
+   * @param {string} word - Word to find
+   * @returns {Array} Array of position objects
+   */
+  findWordPositions(text, word) {
+    const positions = [];
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+      positions.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        word: match[0]
+      });
+    }
+    
+    return positions;
+  }
+
+  /**
+   * Get suggestions for replacing flagged words
+   * @param {string} text - Original text
+   * @param {string} flaggedWord - The flagged word to replace
+   * @param {string} replacement - The replacement word
+   * @returns {string} Text with word replaced
+   */
+  replaceWord(text, flaggedWord, replacement) {
+    const regex = new RegExp(`\\b${flaggedWord}\\b`, 'gi');
+    return text.replace(regex, replacement);
+  }
+
+  /**
+   * Get all flagged words configuration
+   * @returns {Map} Map of flagged words and their configurations
+   */
+  getFlaggedWords() {
+    return this.flaggedWords;
+  }
+
+  /**
+   * Add a new flagged word
+   * @param {string} word - Word to flag
+   * @param {Object} config - Configuration object
+   */
+  addFlaggedWord(word, config) {
+    this.flaggedWords.set(word.toLowerCase(), {
+      alternatives: config.alternatives || [],
+      reason: config.reason || 'Client has flagged this word',
+      severity: config.severity || 'warning'
+    });
+  }
+
+  /**
+   * Remove a flagged word
+   * @param {string} word - Word to remove from flagged list
+   */
+  removeFlaggedWord(word) {
+    this.flaggedWords.delete(word.toLowerCase());
+  }
+
+  /**
+   * Check if a word is flagged
+   * @param {string} word - Word to check
+   * @returns {boolean} True if word is flagged
+   */
+  isWordFlagged(word) {
+    return this.flaggedWords.has(word.toLowerCase());
+  }
+}
+
+export default new WordFlagService();

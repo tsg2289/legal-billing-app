@@ -1,0 +1,42 @@
+Absolutely! Here’s a plan to make your billing entries more robust and contextually varied, especially in response to keywords like "discovery" and their implications (e.g., liability, damages):
+
+## Plan for Robust and Contextual Billing Entries
+
+### 1. Analyze the Brief Billing Description
+- Parse the billing description for key legal terms (e.g., "discovery", "motion", "hearing", "settlement").
+- Identify context or subcategories (e.g., "discovery" may relate to "liability", "damages", "document production", "depositions").
+
+### 2. Build a Keyword-to-Context Map
+- Create a mapping of keywords to relevant legal contexts and themes.
+  - Example:  
+    - "discovery" → ["liability", "damages", "document review", "interrogatories"]
+    - "motion" → ["summary judgment", "dismiss", "compel"]
+- Allow for multiple keywords in a single description to trigger multiple contexts.
+
+### 3. Generate Contextual Variations
+- For each recognized keyword/context, define a set of robust, varied entry templates.
+  - Example for "discovery":
+    - "Reviewed documents relevant to liability and damages."
+    - "Analyzed discovery responses regarding potential damages."
+    - "Drafted interrogatories focused on liability issues."
+- Use randomization or rotation to avoid repetition.
+
+### 4. Enhance Entry Detail and Specificity
+- Incorporate details from the brief (e.g., client name, case type, opposing party) if available.
+- Add specificity to actions (e.g., "Reviewed 50 pages of discovery documents regarding liability.").
+
+### 5. Implement Contextual Logic
+- When generating an entry, check for keywords and select the appropriate template(s).
+- If multiple contexts are present, combine or sequence templates for a more comprehensive entry.
+
+### 6. Fallback and Default Handling
+- If no keywords are detected, use a set of generic but professional legal billing entries.
+
+### 7. Testing and Iteration
+- Test with a variety of brief descriptions to ensure robust, contextually appropriate output.
+- Refine keyword mapping and templates based on feedback and edge cases.
+
+---
+
+**Next Steps:**  
+Once you’re ready, we can start by designing the keyword-to-context map and drafting template variations for each context. Let me know if you want to see a sample mapping or template set before we proceed to code!

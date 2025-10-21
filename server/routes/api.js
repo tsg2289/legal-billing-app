@@ -1,5 +1,8 @@
 import express from 'express';
 import aiService from '../services/ai.js';
+import templateService from '../services/templateService.js';
+import wordFlagService from '../services/wordFlagService.js';
+import anonymizationService from '../services/anonymizationService.js';
 
 const router = express.Router();
 
@@ -9,25 +12,24 @@ router.post('/generateBilling', async (req, res) => {
     const { fileNumber, caseName, description } = req.body;
     
     // Validate request
-    if (!description || !description.trim()) {
+    if (!description) {
       return res.status(400).json({ 
-        error: 'Missing required field: description',
-        message: 'Please provide a billing description'
+        error: 'Missing required field: description' 
       });
     }
 
     console.log('📝 Received billing generation request:', {
-      fileNumber: fileNumber || 'Not provided',
-      caseName: caseName || 'Not provided',
+      fileNumber,
+      caseName,
       descriptionLength: description.length,
       timestamp: new Date().toISOString()
     });
 
     // Generate billing entry using AI
     const billingEntry = await aiService.generateBillingEntry({
-      fileNumber: fileNumber || '',
-      caseName: caseName || '',
-      description: description.trim()
+      fileNumber,
+      caseName,
+      description
     });
     
     res.json({
@@ -40,10 +42,10 @@ router.post('/generateBilling', async (req, res) => {
     console.error('❌ Error in generateBilling:', error);
     
     // Handle specific AI service errors
-    if (error.message.includes('API key') || error.message.includes('not configured')) {
+    if (error.message.includes('API key')) {
       return res.status(500).json({
         error: 'AI service configuration error',
-        message: 'Please check your OpenAI API key configuration in the .env file'
+        message: 'Please check your OpenAI API key configuration'
       });
     }
     
@@ -84,6 +86,237 @@ router.get('/ai/status', (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get AI service status',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/templates - Get all available templates
+router.get('/templates', async (req, res) => {
+  try {
+    const templates = await templateService.getAllTemplates();
+    res.json({
+      success: true,
+      templates,
+      count: templates.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get templates',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/templates/:id - Get specific template
+router.get('/templates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const template = await templateService.getTemplate(id);
+    
+    if (!template) {
+      return res.status(404).json({
+        error: 'Template not found',
+        message: `Template with ID '${id}' does not exist`
+      });
+    }
+    
+    res.json({
+      success: true,
+      template,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get template',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/templates/search/:query - Search templates
+router.get('/templates/search/:query', async (req, res) => {
+  try {
+    const { query } = req.params;
+    const results = await templateService.searchTemplates(query);
+    
+    res.json({
+      success: true,
+      results,
+      count: results.length,
+      query,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to search templates',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/templates/suggest - Get template suggestions based on description
+router.post('/templates/suggest', async (req, res) => {
+  try {
+    const { description } = req.body;
+    
+    if (!description) {
+      return res.status(400).json({
+        error: 'Missing required field: description'
+      });
+    }
+    
+    const suggestions = await templateService.getSuggestedTemplates(description);
+    
+    res.json({
+      success: true,
+      suggestions,
+      count: suggestions.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get template suggestions',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/check-words - Check text for flagged words
+router.post('/check-words', (req, res) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({
+        error: 'Missing required field: text'
+      });
+    }
+    
+    const flags = wordFlagService.checkText(text);
+    
+    res.json({
+      success: true,
+      flags,
+      count: flags.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to check words',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/replace-word - Replace flagged word with alternative
+router.post('/replace-word', (req, res) => {
+  try {
+    const { text, flaggedWord, replacement } = req.body;
+    
+    if (!text || !flaggedWord || !replacement) {
+      return res.status(400).json({
+        error: 'Missing required fields: text, flaggedWord, replacement'
+      });
+    }
+    
+    const newText = wordFlagService.replaceWord(text, flaggedWord, replacement);
+    
+    res.json({
+      success: true,
+      originalText: text,
+      newText,
+      replacedWord: flaggedWord,
+      replacement,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to replace word',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/flagged-words - Get all flagged words
+router.get('/flagged-words', (req, res) => {
+  try {
+    const flaggedWords = Array.from(wordFlagService.getFlaggedWords().entries()).map(([word, config]) => ({
+      word,
+      alternatives: config.alternatives,
+      reason: config.reason,
+      severity: config.severity
+    }));
+    
+    res.json({
+      success: true,
+      flaggedWords,
+      count: flaggedWords.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get flagged words',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/anonymize - Anonymize text
+router.post('/anonymize', (req, res) => {
+  try {
+    const { text, options } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({
+        error: 'Missing required field: text'
+      });
+    }
+    
+    const result = anonymizationService.anonymizeText(text, options);
+    
+    res.json({
+      success: true,
+      originalText: text,
+      anonymizedText: result.text,
+      replacements: result.replacements,
+      anonymized: result.anonymized,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to anonymize text',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/detect-identifiable-info - Detect identifiable information
+router.post('/detect-identifiable-info', (req, res) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({
+        error: 'Missing required field: text'
+      });
+    }
+    
+    const result = anonymizationService.detectIdentifiableInfo(text);
+    const suggestions = anonymizationService.getAnonymizationSuggestions(text);
+    
+    res.json({
+      success: true,
+      hasIdentifiableInfo: result.hasIdentifiableInfo,
+      detectedTypes: result.detectedTypes,
+      count: result.count,
+      suggestions,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to detect identifiable information',
       message: error.message
     });
   }

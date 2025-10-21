@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import templateService from './templateService.js';
+import wordFlagService from './wordFlagService.js';
+import anonymizationService from './anonymizationService.js';
 
 dotenv.config();
 
@@ -30,7 +33,7 @@ class AIService {
       }
 
       // Create the prompt
-      const prompt = this.createBillingPrompt({ fileNumber, caseName, description });
+      const prompt = await this.createBillingPrompt({ fileNumber, caseName, description });
 
       console.log('🤖 Generating billing entry with AI...', {
         model: this.model,
@@ -54,15 +57,28 @@ class AIService {
         temperature: this.temperature,
       });
 
-      const billingEntry = response.choices[0]?.message?.content?.trim();
+      let billingEntry = response.choices[0]?.message?.content?.trim();
       
       if (!billingEntry) {
         throw new Error('No response generated from AI service');
       }
 
+      // Anonymize the billing entry to protect identifiable information
+      const anonymizationResult = anonymizationService.anonymizeText(billingEntry);
+      if (anonymizationResult.anonymized) {
+        console.log('🔒 Anonymized billing entry:', {
+          originalLength: billingEntry.length,
+          anonymizedLength: anonymizationResult.text.length,
+          replacements: anonymizationResult.replacements.length,
+          timestamp: new Date().toISOString()
+        });
+        billingEntry = anonymizationResult.text;
+      }
+
       console.log('✅ Billing entry generated successfully:', {
         entryLength: billingEntry.length,
         tokensUsed: response.usage?.total_tokens,
+        anonymized: anonymizationResult.anonymized,
         timestamp: new Date().toISOString()
       });
 
@@ -92,7 +108,27 @@ class AIService {
   /**
    * Create a well-structured prompt for legal billing
    */
-  createBillingPrompt({ fileNumber, caseName, description }) {
+  async createBillingPrompt({ fileNumber, caseName, description }) {
+    // Get template suggestions based on user description
+    const templateSuggestions = await templateService.getTemplateSuggestionsForPrompt(description);
+    
+    // Check for flagged words in the description
+    const flaggedWords = wordFlagService.checkText(description);
+    let wordFlagWarning = '';
+    
+    if (flaggedWords.length > 0) {
+      wordFlagWarning = '\n\n⚠️ IMPORTANT WORD FLAGGING NOTICE:\n';
+      wordFlagWarning += 'The client has flagged certain words. Please avoid using these words and use the suggested alternatives instead:\n\n';
+      
+      flaggedWords.forEach(flag => {
+        wordFlagWarning += `- AVOID: "${flag.word}" (appears ${flag.count} time${flag.count > 1 ? 's' : ''})\n`;
+        wordFlagWarning += `  REASON: ${flag.reason}\n`;
+        wordFlagWarning += `  SUGGESTED ALTERNATIVES: ${flag.alternatives.join(', ')}\n\n`;
+      });
+      
+      wordFlagWarning += 'Please rewrite your billing entry to use the suggested alternatives instead of the flagged words.\n';
+    }
+    
     return `
 You are a legal billing assistant drafting time entries for a law firm. Based on the inputs below, write a detailed and professional billing entry suitable for a client invoice.
 
@@ -111,6 +147,12 @@ Requirements:
 5. Include relevant legal terminology
 6. Keep entry concise but detailed
 7. Focus on the actual work described
+8. Consider the template suggestions below for appropriate time estimates and professional language
+9. CRITICAL: Follow the word flagging instructions below if any flagged words are detected
+
+${templateSuggestions}
+
+${wordFlagWarning}
 
 Output: Single billing entry line starting with time estimate
 `;

@@ -1,16 +1,28 @@
 {
-    "version": 2,
-    "builds": [
-      {
-        "src": "api/generateBilling.ts",
-        "use": "@vercel/node"
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
       }
-    ],
-    "routes": [
-      {
-        "src": "/api/generateBilling",
-        "dest": "api/generateBilling.ts"
-      }
-    ]
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/generateBilling.js": {
+      "maxDuration": 30
+    }
   }
+}
   
