@@ -28,6 +28,34 @@
   --background-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
+/* Dark Theme */
+[data-theme="dark"] {
+  /* Glass Colors */
+  --glass-bg: rgba(0, 0, 0, 0.2);
+  --glass-bg-hover: rgba(0, 0, 0, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-hover: rgba(255, 255, 255, 0.2);
+  --glass-shadow: rgba(0, 0, 0, 0.3);
+  --glass-shadow-hover: rgba(0, 0, 0, 0.4);
+  
+  /* Text Colors */
+  --glass-text-primary: rgba(255, 255, 255, 0.95);
+  --glass-text-secondary: rgba(255, 255, 255, 0.8);
+  --glass-text-muted: rgba(255, 255, 255, 0.6);
+  
+  /* Accent Colors */
+  --glass-accent: rgba(100, 200, 255, 0.9);
+  --glass-accent-hover: rgba(100, 200, 255, 1);
+  --glass-success: rgba(76, 217, 100, 0.9);
+  --glass-warning: rgba(255, 193, 7, 0.9);
+  --glass-danger: rgba(255, 69, 58, 0.9);
+  
+  /* Gradients */
+  --glass-gradient: linear-gradient(135deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.1) 100%);
+  --glass-gradient-hover: linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.15) 100%);
+  --background-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -309,6 +337,17 @@ h2 {
 /* Responsive Design */
 @media (min-width: 768px) {
   .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Hide number input spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 @media (max-width: 768px) {

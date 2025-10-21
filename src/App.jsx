@@ -10,16 +10,43 @@ export default function BillingApp() {
   const [editingHoursValue, setEditingHoursValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [templates, setTemplates] = useState([]);
-  const [templateSuggestions, setTemplateSuggestions] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [wordFlags, setWordFlags] = useState([]);
   const [showWordFlags, setShowWordFlags] = useState(false);
-  const [hoveredSuggestion, setHoveredSuggestion] = useState(null);
+  const [collapsedCases, setCollapsedCases] = useState(new Set());
+  const [draggedCase, setDraggedCase] = useState(null);
+  const [dragOverCase, setDragOverCase] = useState(null);
+  const [draggedEntry, setDraggedEntry] = useState(null);
+  const [dragOverEntry, setDragOverEntry] = useState(null);
+  const [editingCaseName, setEditingCaseName] = useState(null);
+  const [editingCaseNameValue, setEditingCaseNameValue] = useState('');
+  const [theme, setTheme] = useState('light');
+  const [aiEnhancing, setAiEnhancing] = useState(null);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [previewSuggestion, setPreviewSuggestion] = useState(null);
+  const [userPreferences, setUserPreferences] = useState({
+    preferredStyle: 'comprehensive', // 'concise', 'comprehensive', 'detailed'
+    legalFocus: 'general', // 'litigation', 'transactional', 'compliance'
+    hourPreference: 'moderate' // 'conservative', 'moderate', 'generous'
+  });
 
   // Load templates on component mount
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  // Load theme from localStorage on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('billing-app-theme') || 'light';
+    setTheme(savedTheme);
+  }, []);
+
+  // Apply theme to document and save to localStorage
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('billing-app-theme', theme);
+  }, [theme]);
 
   // Ensure editingText is properly synchronized when switching from hours to text editing
   useEffect(() => {
@@ -32,14 +59,6 @@ export default function BillingApp() {
     }
   }, [editingIndex, editingHours, editingText, entries]);
 
-  // Get template suggestions when description changes
-  useEffect(() => {
-    if (description.trim().length > 10) {
-      getTemplateSuggestions(description);
-    } else {
-      setTemplateSuggestions([]);
-    }
-  }, [description]);
 
   // Check for flagged words when description changes
   useEffect(() => {
@@ -76,24 +95,20 @@ export default function BillingApp() {
     }
   };
 
-  const getTemplateSuggestions = async (desc) => {
-    try {
-      const response = await fetch('/api/templates/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: desc })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setTemplateSuggestions(data.suggestions.slice(0, 3)); // Show top 3 suggestions
-      }
-    } catch (error) {
-      console.error('Error getting template suggestions:', error);
-    }
-  };
 
   const handleTemplateSelect = (template) => {
-    setDescription(template.description);
+    // Create a billing entry directly from the template
+    const hours = parseFloat(template.time) || 0;
+    const entryText = `${template.time}: ${template.description}`;
+    
+    const newEntry = {
+      case: caseName || 'New Case',
+      entry: entryText,
+      hours: hours
+    };
+    
+    setEntries(prev => [...prev, newEntry]);
+    setDescription('');
     setShowTemplates(false);
   };
 
@@ -183,6 +198,21 @@ export default function BillingApp() {
 
   const handleReset = () => setEntries([]);
 
+  const handleManualEntry = () => {
+    const newEntry = {
+      case: caseName || 'New Case',
+      entry: '',
+      hours: 0
+    };
+    setEntries([...entries, newEntry]);
+    
+    // Start editing the new entry immediately
+    const newIndex = entries.length;
+    setEditingIndex(newIndex);
+    setEditingText('');
+    setEditingHours(false);
+  };
+
   // Calculate total hours
   const totalHours = entries.reduce((sum, entry) => sum + (entry.hours || 0), 0);
 
@@ -191,9 +221,8 @@ export default function BillingApp() {
     // Use the current entry text, ensuring we have the most up-to-date content
     const currentEntry = entries[index];
     const textToEdit = currentEntry?.entry || '';
-    // Remove hours prefix from text for editing
-    const textWithoutHours = removeHoursFromText(textToEdit);
-    setEditingText(textWithoutHours);
+    // Use text as-is without removing hours prefix
+    setEditingText(textToEdit);
     // Reset hours editing when starting text editing
     setEditingHours(false);
     setEditingHoursValue('');
@@ -201,10 +230,8 @@ export default function BillingApp() {
 
   const saveEdit = () => {
     const updated = [...entries];
-    // Add hours prefix back to the text when saving
-    const currentHours = updated[editingIndex].hours || 0;
-    const textWithHours = `${currentHours}: ${editingText}`;
-    updated[editingIndex].entry = textWithHours;
+    // Save text without adding hours prefix
+    updated[editingIndex].entry = editingText;
     setEntries(updated);
     setEditingIndex(null);
     setEditingText('');
@@ -223,10 +250,7 @@ export default function BillingApp() {
     const updated = [...entries];
     const newHours = parseFloat(editingHoursValue) || 0;
     updated[editingIndex].hours = newHours;
-    // Update the text with the new hours prefix
-    const currentText = updated[editingIndex].entry || '';
-    const textWithoutHours = removeHoursFromText(currentText);
-    updated[editingIndex].entry = `${newHours}: ${textWithoutHours}`;
+    // Don't modify the text when changing hours
     setEntries(updated);
     setEditingHours(false);
     setEditingHoursValue('');
@@ -243,6 +267,428 @@ export default function BillingApp() {
     setEntries(entries.filter((_, i) => i !== index));
   };
 
+  const handleAIEnhancement = async (entryIndex) => {
+    setAiEnhancing(entryIndex);
+    setShowAIModal(true);
+    
+    try {
+      const currentEntry = entries[entryIndex];
+      // Generate intelligent suggestions based on existing templates and current text
+      const suggestions = generateAISuggestions(currentEntry.entry, currentEntry.hours, currentEntry.case);
+      setAiSuggestions(suggestions);
+    } catch (error) {
+      console.error('AI enhancement error:', error);
+    }
+    // Don't reset aiEnhancing here - keep it for applyAISuggestion
+  };
+
+  // Regenerate suggestions when preferences change
+  const regenerateSuggestions = () => {
+    if (aiEnhancing !== null) {
+      const currentEntry = entries[aiEnhancing];
+      const suggestions = generateAISuggestions(currentEntry.entry, currentEntry.hours, currentEntry.case);
+      setAiSuggestions(suggestions);
+    }
+  };
+
+  // Effect to regenerate suggestions when preferences change
+  useEffect(() => {
+    if (showAIModal && aiEnhancing !== null) {
+      regenerateSuggestions();
+    }
+  }, [userPreferences, showAIModal, aiEnhancing]);
+
+  const generateAISuggestions = (entryText, hours, caseName) => {
+    // Enhanced text analysis and context understanding
+    const currentText = entryText.toLowerCase();
+    
+    // Enhanced subject extraction with more legal terms
+    const extractSubjects = (text) => {
+      const subjects = [];
+      const legalTerms = {
+        'plaintiff': 'plaintiff\'s claims and allegations',
+        'defendant': 'defendant\'s position and defenses',
+        'deposition': 'deposition preparation and strategy',
+        'discovery': 'discovery matters and documentation',
+        'damages': 'damages analysis and quantification',
+        'injury': 'injury claims and medical evidence',
+        'liability': 'liability issues and legal standards',
+        'interrogatory': 'interrogatory responses and analysis',
+        'exhibit': 'exhibit preparation and organization',
+        'motion': 'motion practice and legal arguments',
+        'settlement': 'settlement negotiations and strategy',
+        'trial': 'trial preparation and presentation',
+        'expert': 'expert witness preparation and testimony',
+        'mediation': 'mediation and alternative dispute resolution'
+      };
+      
+      Object.entries(legalTerms).forEach(([term, description]) => {
+        if (text.includes(term)) subjects.push(description);
+      });
+      
+      return subjects.length > 0 ? subjects : ['case matters and legal issues'];
+    };
+
+    // Enhanced pattern recognition
+    const detectLegalActivity = (text) => {
+      const patterns = {
+        analysis: ['analyze', 'review', 'examine', 'assess', 'evaluate'],
+        preparation: ['prepare', 'draft', 'create', 'develop', 'organize'],
+        research: ['research', 'investigate', 'study', 'investigate', 'explore'],
+        communication: ['correspond', 'discuss', 'meet', 'confer', 'consult'],
+        documentation: ['document', 'record', 'file', 'compile', 'organize'],
+        strategy: ['strategy', 'plan', 'approach', 'method', 'tactic']
+      };
+      
+      const detectedPatterns = [];
+      Object.entries(patterns).forEach(([pattern, keywords]) => {
+        if (keywords.some(keyword => text.includes(keyword))) {
+          detectedPatterns.push(pattern);
+        }
+      });
+      
+      return detectedPatterns;
+    };
+
+    // Detect case type and urgency
+    const detectCaseType = (caseName) => {
+      const name = caseName.toLowerCase();
+      if (name.includes('injury') || name.includes('accident')) return 'personal_injury';
+      if (name.includes('contract') || name.includes('agreement')) return 'contract';
+      if (name.includes('employment') || name.includes('labor')) return 'employment';
+      if (name.includes('family') || name.includes('divorce')) return 'family';
+      return 'general';
+    };
+
+    const detectUrgency = (text) => {
+      const urgentTerms = ['urgent', 'immediate', 'deadline', 'expedite', 'priority', 'asap'];
+      return urgentTerms.some(term => text.includes(term)) ? 'high' : 'normal';
+    };
+
+    const subjects = extractSubjects(currentText);
+    const primarySubject = subjects[0];
+    const detectedPatterns = detectLegalActivity(currentText);
+    const caseType = detectCaseType(caseName);
+    const urgency = detectUrgency(currentText);
+
+    // Generate intelligent suggestions based on current content
+    const suggestions = [];
+
+    // Suggestion 1: Comprehensive Legal Analysis
+    if (detectedPatterns.includes('analysis')) {
+      suggestions.push({
+        title: "Comprehensive Legal Analysis",
+        description: "Expand with detailed legal analysis including case law research and precedent review",
+        enhancedText: `Conduct comprehensive legal analysis of ${primarySubject} including thorough research of applicable case law, review of relevant legal precedents, analysis of statutory requirements, and preparation of detailed findings with supporting legal authority in anticipation of upcoming proceedings.`,
+        suggestedHours: Math.max(hours + 0.4, 0.7),
+        confidence: 95,
+        type: "analysis"
+      });
+    }
+
+    // Suggestion 2: Strategic Deposition Preparation
+    if (detectedPatterns.includes('preparation') || currentText.includes('deposition')) {
+      suggestions.push({
+        title: "Strategic Deposition Preparation",
+        description: "Develop comprehensive deposition strategy with detailed questioning approach",
+        enhancedText: `Develop comprehensive deposition strategy regarding ${primarySubject} including preparation of detailed lines of questioning, development of cross-examination techniques, identification of key areas for inquiry, preparation of follow-up questions, and strategic planning for effective witness examination in anticipation of deposition proceedings.`,
+        suggestedHours: Math.max(hours + 0.5, 0.8),
+        confidence: 92,
+        type: "deposition"
+      });
+    }
+
+    // Suggestion 3: Advanced Discovery Strategy
+    if (detectedPatterns.includes('documentation') || currentText.includes('discovery')) {
+      suggestions.push({
+        title: "Advanced Discovery Strategy",
+        description: "Create comprehensive discovery plan with detailed documentation approach",
+        enhancedText: `Develop comprehensive discovery strategy concerning ${primarySubject} including preparation of detailed interrogatories, requests for production of documents, requests for admission, analysis of potential responses, identification of additional discovery needs, and strategic planning for effective case development through discovery.`,
+        suggestedHours: Math.max(hours + 0.6, 0.9),
+        confidence: 88,
+        type: "discovery"
+      });
+    }
+
+    // Suggestion 4: Case Strategy Development
+    if (detectedPatterns.includes('strategy') || currentText.includes('case')) {
+      suggestions.push({
+        title: "Case Strategy Development",
+        description: "Develop comprehensive case strategy and defense approach",
+        enhancedText: `Develop comprehensive case strategy regarding ${primarySubject} including analysis of legal theories, identification of key evidence, preparation of defense arguments, strategic planning for case progression, and development of effective legal arguments to support client position.`,
+        suggestedHours: Math.max(hours + 0.5, 0.8),
+        confidence: 90,
+        type: "strategy"
+      });
+    }
+
+    // Suggestion 5: Comprehensive Research
+    if (detectedPatterns.includes('research') || currentText.includes('investigate')) {
+      suggestions.push({
+        title: "Comprehensive Research",
+        description: "Expand research scope with detailed investigation",
+        enhancedText: `Conduct comprehensive research regarding ${primarySubject} including investigation of relevant legal precedents, analysis of applicable statutes and regulations, review of expert opinions, preparation of research memorandum, and identification of key legal authorities to support case position.`,
+        suggestedHours: Math.max(hours + 0.4, 0.7),
+        confidence: 87,
+        type: "research"
+      });
+    }
+
+    // Context-aware suggestions
+    if (urgency === 'high') {
+      suggestions.push({
+        title: "Urgent Case Development",
+        description: "Accelerated preparation with priority focus",
+        enhancedText: `Prioritize urgent case development regarding ${primarySubject} including immediate research of critical legal issues, expedited preparation of essential documentation, and rapid development of case strategy to meet pressing deadlines and court requirements.`,
+        suggestedHours: Math.max(hours + 0.3, 0.6),
+        confidence: 90,
+        type: "urgent"
+      });
+    }
+
+    // Case-type specific enhancements
+    if (caseType === 'personal_injury') {
+      suggestions.push({
+        title: "Personal Injury Focus",
+        description: "Specialized approach for personal injury matters",
+        enhancedText: `Develop specialized personal injury case strategy regarding ${primarySubject} including analysis of medical evidence, evaluation of damages, preparation of expert witness materials, and comprehensive documentation of injury-related claims and supporting evidence.`,
+        suggestedHours: Math.max(hours + 0.4, 0.7),
+        confidence: 85,
+        type: "personal_injury"
+      });
+    }
+
+    // If no specific patterns match, provide general enhancement
+    if (suggestions.length === 0) {
+      suggestions.push({
+        title: "Professional Enhancement",
+        description: "Enhance with professional legal billing language",
+        enhancedText: `Conduct professional analysis and preparation regarding ${primarySubject} including comprehensive review, strategic planning, and detailed documentation in anticipation of case progression.`,
+        suggestedHours: Math.max(hours + 0.2, 0.4),
+        confidence: 75,
+        type: "general"
+      });
+    }
+
+    // Quality scoring and ranking
+    const scoreSuggestion = (suggestion, originalText) => {
+      let score = 0;
+      
+      // Length improvement score
+      const lengthImprovement = suggestion.enhancedText.length / originalText.length;
+      score += Math.min(lengthImprovement * 20, 30);
+      
+      // Legal terminology score
+      const legalTerms = ['analysis', 'preparation', 'strategy', 'comprehensive', 'thorough', 'anticipation', 'proceedings'];
+      const legalTermCount = legalTerms.filter(term => 
+        suggestion.enhancedText.toLowerCase().includes(term)
+      ).length;
+      score += legalTermCount * 5;
+      
+      // Professional language score
+      const professionalPhrases = ['in anticipation of', 'including', 'regarding', 'concerning', 'preparation of', 'development of'];
+      const professionalCount = professionalPhrases.filter(phrase => 
+        suggestion.enhancedText.toLowerCase().includes(phrase)
+      ).length;
+      score += professionalCount * 3;
+      
+      return Math.min(score, 100);
+    };
+
+    // Add quality scores and sort
+    suggestions.forEach(suggestion => {
+      suggestion.qualityScore = scoreSuggestion(suggestion, entryText);
+    });
+
+    // Sort by quality score
+    suggestions.sort((a, b) => b.qualityScore - a.qualityScore);
+
+    // Adjust suggestions based on user preferences
+    const adjustForPreferences = (suggestions, preferences) => {
+      return suggestions.map(suggestion => {
+        let adjustedSuggestion = { ...suggestion };
+        
+        if (preferences.preferredStyle === 'concise') {
+          // Make text more concise
+          adjustedSuggestion.enhancedText = adjustedSuggestion.enhancedText
+            .replace(/including thorough research of applicable case law, review of relevant legal precedents, analysis of statutory requirements, and preparation of detailed findings with supporting legal authority/g, 'including case law research and precedent analysis')
+            .replace(/including preparation of detailed lines of questioning, development of cross-examination techniques, identification of key areas for inquiry, preparation of follow-up questions, and strategic planning for effective witness examination/g, 'including questioning strategy and cross-examination preparation')
+            .replace(/including preparation of detailed interrogatories, requests for production of documents, requests for admission, analysis of potential responses, identification of additional discovery needs, and strategic planning for effective case development through discovery/g, 'including interrogatories, document requests, and discovery strategy');
+          
+          adjustedSuggestion.suggestedHours = Math.max(adjustedSuggestion.suggestedHours - 0.1, 0.2);
+        } else if (preferences.preferredStyle === 'detailed') {
+          // Add more detail
+          adjustedSuggestion.enhancedText = adjustedSuggestion.enhancedText
+            .replace(/comprehensive/g, 'thorough and comprehensive')
+            .replace(/analysis/g, 'detailed analysis')
+            .replace(/preparation/g, 'extensive preparation');
+          
+          adjustedSuggestion.suggestedHours = adjustedSuggestion.suggestedHours + 0.2;
+        }
+        
+        if (preferences.hourPreference === 'conservative') {
+          adjustedSuggestion.suggestedHours = Math.max(adjustedSuggestion.suggestedHours - 0.2, 0.1);
+        } else if (preferences.hourPreference === 'generous') {
+          adjustedSuggestion.suggestedHours = adjustedSuggestion.suggestedHours + 0.3;
+        }
+        
+        return adjustedSuggestion;
+      });
+    };
+
+    const adjustedSuggestions = adjustForPreferences(suggestions, userPreferences);
+
+    return adjustedSuggestions.slice(0, 3); // Return top 3 suggestions
+  };
+
+  const applyAISuggestion = (suggestion) => {
+    console.log('Applying AI suggestion:', suggestion);
+    console.log('AI enhancing index:', aiEnhancing);
+    
+    // Always start editing the entry with the AI suggestion
+    setEditingIndex(aiEnhancing);
+    setEditingText(suggestion.enhancedText);
+    setEditingHoursValue(suggestion.suggestedHours.toString());
+    setEditingHours(false); // Make sure we're in text editing mode, not hours editing
+    
+    console.log('Set editing index to:', aiEnhancing);
+    console.log('Set editing text to:', suggestion.enhancedText);
+    
+    // Close the modal and reset AI state
+    setShowAIModal(false);
+    setAiSuggestions([]);
+    setAiEnhancing(null);
+    
+    // Show success feedback
+    setTimeout(() => {
+      console.log('AI suggestion applied to text box');
+    }, 100);
+  };
+
+  const toggleCaseCollapse = (caseName) => {
+    setCollapsedCases(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(caseName)) {
+        newSet.delete(caseName);
+      } else {
+        newSet.add(caseName);
+      }
+      return newSet;
+    });
+  };
+
+  const handleDragStart = (e, caseName) => {
+    setDraggedCase(caseName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target.outerHTML);
+  };
+
+  const handleDragOver = (e, caseName) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverCase(caseName);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverCase(null);
+  };
+
+  const handleDrop = (e, targetCaseName) => {
+    e.preventDefault();
+    if (draggedCase && draggedCase !== targetCaseName) {
+      // Get all unique case names in order
+      const caseNames = [...new Set(entries.map(entry => entry.case))];
+      const draggedCaseIndex = caseNames.indexOf(draggedCase);
+      const targetCaseIndex = caseNames.indexOf(targetCaseName);
+      
+      if (draggedCaseIndex !== -1 && targetCaseIndex !== -1) {
+        // Remove dragged case from its position
+        caseNames.splice(draggedCaseIndex, 1);
+        
+        // Insert dragged case at the exact target position
+        caseNames.splice(targetCaseIndex, 0, draggedCase);
+        
+        // Reorder entries based on new case order
+        const reorderedEntries = [];
+        caseNames.forEach(caseName => {
+          const caseEntries = entries.filter(entry => entry.case === caseName);
+          reorderedEntries.push(...caseEntries);
+        });
+        
+        setEntries(reorderedEntries);
+      }
+    }
+    setDraggedCase(null);
+    setDragOverCase(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedCase(null);
+    setDragOverCase(null);
+  };
+
+  const handleEntryDragStart = (e, entryIndex) => {
+    setDraggedEntry(entryIndex);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target.outerHTML);
+  };
+
+  const handleEntryDragOver = (e, entryIndex) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverEntry(entryIndex);
+  };
+
+  const handleEntryDragLeave = () => {
+    setDragOverEntry(null);
+  };
+
+  const handleEntryDrop = (e, targetEntryIndex) => {
+    e.preventDefault();
+    if (draggedEntry !== null && draggedEntry !== targetEntryIndex) {
+      const newEntries = [...entries];
+      const draggedItem = newEntries[draggedEntry];
+      
+      // Remove dragged item
+      newEntries.splice(draggedEntry, 1);
+      
+      // Insert at the exact target position
+      newEntries.splice(targetEntryIndex, 0, draggedItem);
+      
+      setEntries(newEntries);
+    }
+    setDraggedEntry(null);
+    setDragOverEntry(null);
+  };
+
+  const handleEntryDragEnd = () => {
+    setDraggedEntry(null);
+    setDragOverEntry(null);
+  };
+
+  const startEditingCaseName = (caseName) => {
+    setEditingCaseName(caseName);
+    setEditingCaseNameValue(caseName);
+  };
+
+  const saveCaseNameEdit = () => {
+    if (editingCaseName && editingCaseNameValue.trim()) {
+      const updatedEntries = entries.map(entry => 
+        entry.case === editingCaseName 
+          ? { ...entry, case: editingCaseNameValue.trim() }
+          : entry
+      );
+      setEntries(updatedEntries);
+    }
+    setEditingCaseName(null);
+    setEditingCaseNameValue('');
+  };
+
+  const cancelCaseNameEdit = () => {
+    setEditingCaseName(null);
+    setEditingCaseNameValue('');
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-4xl mx-auto">
@@ -250,7 +696,25 @@ export default function BillingApp() {
         <div className="glass p-8 space-y-8">
         {/* Header Section */}
         <div className="text-center space-y-2">
+          <div className="flex items-center justify-between">
+            <div></div>
           <h1>Legal Billing Generator</h1>
+            <button
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              className="glass-button p-2 hover:bg-opacity-20 transition-all duration-200"
+              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+            >
+              {theme === 'light' ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              )}
+            </button>
+          </div>
           <p className="text-lg" style={{ color: 'var(--glass-text-secondary)' }}>
             AI-powered billing entry generation with Apple Glass aesthetics
           </p>
@@ -271,22 +735,10 @@ export default function BillingApp() {
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium" style={{ color: 'var(--glass-text-secondary)' }}>
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--glass-text-secondary)' }}>
                 Brief Billing Description
               </label>
-              <button
-                type="button"
-                className="glass-button text-sm px-3 py-1"
-                onClick={() => setShowTemplates(!showTemplates)}
-              >
-                <span className="flex items-center gap-1">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Templates
-                </span>
-              </button>
             </div>
             
             <div className="relative">
@@ -350,126 +802,58 @@ export default function BillingApp() {
                 </div>
               )}
 
-              {/* Template Suggestions */}
-              {templateSuggestions.length > 0 && description.trim().length > 10 && (
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm" style={{ color: 'var(--glass-text-secondary)' }}>
-                    💡 Template suggestions:
-                  </p>
-                  {templateSuggestions.map((suggestion, idx) => (
-                    <div key={idx} className="glass p-3 space-y-2 relative">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-sm" style={{ color: 'var(--glass-text)' }}>
-                          {suggestion.name}
-                        </h4>
-                        <span 
-                          className="text-xs px-2 py-1 glass rounded-full cursor-pointer hover:bg-opacity-30 transition-all duration-200" 
-                          style={{ color: 'var(--glass-text-secondary)' }}
-                          onMouseEnter={() => setHoveredSuggestion(idx)}
-                        >
-                          {suggestion.matchingTemplates.length} matches
-                        </span>
                       </div>
-                      <div className="space-y-1">
-                        {suggestion.matchingTemplates.slice(0, 2).map((template, tIdx) => (
-                          <button
-                            key={tIdx}
-                            className="w-full text-left p-2 glass rounded-lg hover:bg-opacity-20 transition-all duration-200"
-                            onClick={() => handleTemplateSelect(template)}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-mono" style={{ color: 'var(--glass-accent)' }}>
-                                {template.time}
-                              </span>
-                              <span className="text-sm" style={{ color: 'var(--glass-text-secondary)' }}>
-                                {template.description}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
                       </div>
                       
-                      {/* Hover Template List */}
-                      {hoveredSuggestion === idx && (
-                        <div 
-                          className="absolute top-0 left-full ml-4 z-50 glass p-4 space-y-2 max-h-80 overflow-y-auto w-80" 
-                          style={{ backdropFilter: 'blur(20px)', backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
-                          onMouseEnter={() => setHoveredSuggestion(idx)}
-                          onMouseLeave={() => setHoveredSuggestion(null)}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <h5 className="font-medium text-sm" style={{ color: 'var(--glass-text)' }}>
-                              All {suggestion.name} Templates
-                            </h5>
+          {/* Entry Generation Buttons */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Button 1: Manual Entry (No AI) */}
                             <button
-                              className="text-xs px-2 py-1 glass rounded hover:bg-opacity-20"
-                              onClick={() => setHoveredSuggestion(null)}
+              onClick={handleManualEntry}
+              className="glass-button p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2"
                             >
-                              ✕
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span className="text-sm">Manual Entry</span>
                             </button>
-                          </div>
-                          <div className="space-y-1">
-                            {suggestion.matchingTemplates.map((template, tIdx) => (
-                              <button
-                                key={tIdx}
-                                className="w-full text-left p-2 glass rounded-lg hover:bg-opacity-20 transition-all duration-200"
-                                onClick={() => {
-                                  handleTemplateSelect(template);
-                                  setHoveredSuggestion(null);
-                                }}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-mono" style={{ color: 'var(--glass-accent)' }}>
-                                    {template.time}
-                                  </span>
-                                  <span className="text-sm" style={{ color: 'var(--glass-text-secondary)' }}>
-                                    {template.description}
-                                  </span>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Button 2: AI Generate */}
           <button
-              className={`flex-1 glass-button glass-button-primary ${loading ? 'loading' : ''}`}
             onClick={handleGenerate}
             disabled={loading}
+              className="glass-button glass-button-primary p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
           >
               {loading ? (
-                <span className="flex items-center justify-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Generating...
-                </span>
               ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
-                  Add Entry
-                </span>
               )}
+              <span className="text-sm">{loading ? 'Generating...' : 'AI Generate'}</span>
           </button>
 
+            {/* Button 3: Templates */}
           <button
-              className="flex-1 glass-button glass-button-danger"
+              onClick={() => setShowTemplates(true)}
+              className="glass-button p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="text-sm">Templates</span>
+            </button>
+
+            {/* Button 4: Reset All */}
+            <button
             onClick={handleReset}
+              className="glass-button glass-button-danger p-3 rounded-lg hover:bg-red-500/20 transition-all duration-200 flex items-center justify-center gap-2"
           >
-              <span className="flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Reset All
-              </span>
+              <span className="text-sm">Reset All</span>
           </button>
           </div>
         </div>
@@ -483,7 +867,7 @@ export default function BillingApp() {
             </span>
           </div>
 
-          <div className="glass p-6 space-y-4 max-h-[500px] overflow-y-auto">
+          <div className="glass p-6 space-y-6">
             {entries.length === 0 ? (
               <div className="text-center py-12">
                 <div className="w-16 h-16 mx-auto mb-4 glass rounded-full flex items-center justify-center">
@@ -494,21 +878,154 @@ export default function BillingApp() {
                 <p style={{ color: 'var(--glass-text-secondary)' }}>No entries yet. Create your first billing entry above.</p>
               </div>
             ) : (
-              entries.map((item, idx) => (
-                <div key={idx} className="glass-hover p-4 space-y-3">
-                  <div className="space-y-3">
-                    {/* Case Title */}
+              Object.entries(
+                entries.reduce((groups, item, idx) => {
+                  if (!groups[item.case]) {
+                    groups[item.case] = [];
+                  }
+                  groups[item.case].push({ ...item, originalIndex: idx });
+                  return groups;
+                }, {})
+              ).map(([caseName, caseEntries]) => (
+                <div 
+                  key={caseName} 
+                  className={`glass p-6 space-y-4 mb-8 transition-all duration-200 ${
+                    draggedCase === caseName ? 'opacity-50 scale-95' : ''
+                  } ${
+                    dragOverCase === caseName ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                  }`}
+                  style={{ 
+                    borderLeft: '4px solid var(--glass-accent)',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    cursor: 'grab'
+                  }}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, caseName)}
+                  onDragOver={(e) => handleDragOver(e, caseName)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, caseName)}
+                  onDragEnd={handleDragEnd}
+                >
+                  {/* Case Header */}
+                  <div className="flex items-center justify-between mb-6 pb-4" style={{ 
+                    borderBottom: '1px solid var(--glass-border)' 
+                  }}>
                     <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--glass-accent)' }}></div>
-                      <strong className="truncate" style={{ color: 'var(--glass-text)' }}>{item.case}</strong>
+                      <div className="flex items-center gap-2">
+                        <svg 
+                          className="w-4 h-4 cursor-grab" 
+                          style={{ color: 'var(--glass-text-muted)' }} 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                        </svg>
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--glass-accent)' }}></div>
+                      </div>
+                      {editingCaseName === caseName ? (
+                        <input
+                          type="text"
+                          value={editingCaseNameValue}
+                          onChange={(e) => setEditingCaseNameValue(e.target.value)}
+                          onBlur={saveCaseNameEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              saveCaseNameEdit();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelCaseNameEdit();
+                            }
+                          }}
+                          className="text-xl font-bold bg-transparent border-none outline-none"
+                          style={{ color: 'var(--glass-text)' }}
+                          autoFocus
+                        />
+                      ) : (
+                        <h3 
+                          className="text-xl font-bold cursor-pointer hover:opacity-80 transition-opacity duration-200" 
+                          style={{ color: 'var(--glass-text)' }}
+                          onClick={() => startEditingCaseName(caseName)}
+                          title="Click to edit case name"
+                        >
+                          {caseName}
+                        </h3>
+                      )}
+                      <button
+                        onClick={() => startEditingCaseName(caseName)}
+                        className="glass-button p-1 hover:bg-opacity-20 transition-all duration-200"
+                        title="Edit case name"
+                      >
+                        <svg 
+                          className="w-4 h-4" 
+                          style={{ color: 'var(--glass-text-secondary)' }} 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => toggleCaseCollapse(caseName)}
+                      className="glass-button p-2 hover:bg-opacity-20 transition-all duration-200"
+                      title={collapsedCases.has(caseName) ? 'Expand case' : 'Collapse case'}
+                    >
+                      <svg 
+                        className="w-5 h-5 transition-transform duration-200" 
+                        style={{ 
+                          color: 'var(--glass-text-secondary)',
+                          transform: collapsedCases.has(caseName) ? 'rotate(-90deg)' : 'rotate(0deg)'
+                        }} 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
                     </div>
                     
-                    {/* Entry Content Row */}
-                    <div className="flex gap-4">
+                  {/* Entries for this case */}
+                  {!collapsedCases.has(caseName) && (
+                    <div className="space-y-1">
+                      {caseEntries.map((item, idx) => (
+                    <div 
+                      key={item.originalIndex} 
+                      className={`glass-hover p-4 space-y-3 transition-all duration-200 ${
+                        draggedEntry === item.originalIndex ? 'opacity-50 scale-95' : ''
+                      } ${
+                        dragOverEntry === item.originalIndex ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                      }`}
+                      style={{ cursor: 'grab' }}
+                      draggable
+                      onDragStart={(e) => handleEntryDragStart(e, item.originalIndex)}
+                      onDragOver={(e) => handleEntryDragOver(e, item.originalIndex)}
+                      onDragLeave={handleEntryDragLeave}
+                      onDrop={(e) => handleEntryDrop(e, item.originalIndex)}
+                      onDragEnd={handleEntryDragEnd}
+                    >
+                      <div className="space-y-2">
+                        {/* Entry Content Row - no case title here */}
+                        <div className="flex gap-3 items-stretch">
+                          {/* Drag Handle */}
+                          <div className="flex-shrink-0 flex items-center">
+                            <svg 
+                              className="w-4 h-4 cursor-grab" 
+                              style={{ color: 'var(--glass-text-muted)' }} 
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                            </svg>
+                          </div>
                       {/* Hours Column */}
                       <div className="flex-shrink-0 w-20">
-                        {editingHours && editingIndex === idx ? (
-                          <div className="glass p-3 text-center rounded-lg h-full flex flex-col justify-center items-center space-y-1">
+                            {editingHours && editingIndex === item.originalIndex ? (
+                              <div className="glass p-3 text-center rounded-lg flex flex-col justify-center items-center space-y-1 h-full">
                             <input
                               type="number"
                               step="0.1"
@@ -528,10 +1045,10 @@ export default function BillingApp() {
                               className="glass-input text-center text-lg font-bold"
                               style={{ 
                                 color: 'var(--glass-accent)',
-                                width: '100%',
-                                padding: '8px 4px',
-                                minWidth: '60px',
-                                maxWidth: '80px'
+                                    width: '100%',
+                                    padding: '8px 4px',
+                                    minWidth: '60px',
+                                    maxWidth: '80px'
                               }}
                               autoFocus
                             />
@@ -541,8 +1058,8 @@ export default function BillingApp() {
                           </div>
                         ) : (
                           <div 
-                            className="glass p-3 text-center rounded-lg h-full flex flex-col justify-center cursor-pointer hover:bg-opacity-20 transition-all duration-200"
-                            onClick={() => startEditingHours(idx, item.hours)}
+                                className="glass p-3 text-center rounded-lg flex flex-col justify-center cursor-pointer hover:bg-opacity-20 transition-all duration-200 h-full"
+                                onClick={() => startEditingHours(item.originalIndex, item.hours)}
                             title="Click to edit hours"
                           >
                             <div className="text-lg font-bold" style={{ color: 'var(--glass-accent)' }}>
@@ -556,54 +1073,80 @@ export default function BillingApp() {
                       </div>
                       
                       {/* Entry Content */}
-                      <div className="flex-1" style={{ flex: '1 1 0%' }}>
-                        {editingIndex === idx && !editingHours ? (
-                          <div className="glass rounded-lg p-3" style={{ width: '100%' }}>
-                            <textarea
-                              value={editingText || removeHoursFromText(entries[idx]?.entry || '')}
-                              onChange={(e) => setEditingText(e.target.value)}
-                              onBlur={saveEdit}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault();
-                                  saveEdit();
-                                }
-                              }}
-                              className="w-full bg-transparent border-none outline-none resize whitespace-pre-wrap"
-                              rows={3}
-                              autoFocus
-                              style={{ 
-                                color: 'var(--glass-text-secondary)',
-                                padding: '0',
-                                margin: '0',
-                                width: '100%',
-                                minHeight: 'auto',
-                                boxSizing: 'border-box',
-                                minWidth: '100%'
-                              }}
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            className="cursor-pointer p-3 glass rounded-lg hover:bg-opacity-20 transition-all duration-200"
-                            onClick={() => startEditing(idx, item.entry)}
-                            style={{ width: '100%' }}
-                          >
-                            <p style={{ color: 'var(--glass-text-secondary)' }} className="whitespace-pre-wrap">
-                              {item.entry || 'No content'}
-                            </p>
-                            <p className="text-xs mt-2" style={{ color: 'var(--glass-text-secondary)' }}>
-                              Click to edit
-                            </p>
-                          </div>
-                        )}
+                          <div className={editingIndex === item.originalIndex && !editingHours ? "w-full" : "flex-1"} style={{ minWidth: '0' }}>
+                            {editingIndex === item.originalIndex && !editingHours ? (
+                              <div className="glass rounded-lg p-3 relative" style={{ width: '100%' }}>
+                      <textarea
+                                  value={editingText || entries[item.originalIndex]?.entry || ''}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            saveEdit();
+                          }
+                        }}
+                                  className="w-full bg-transparent border-none outline-none resize-both whitespace-pre-wrap"
+                          rows={5}
+                        autoFocus
+                          style={{ 
+                            color: 'var(--glass-text-secondary)',
+                            padding: '0',
+                            margin: '0',
+                            width: '100%',
+                            minWidth: '100%',
+                            maxWidth: '100%',
+                            minHeight: '120px',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        
+                        {/* AI Enhancement Button - Bottom Right */}
+                        <button
+                          className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                          onClick={() => handleAIEnhancement(item.originalIndex)}
+                          title="AI Enhance Entry"
+                        >
+                          <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                              className="cursor-pointer p-3 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 h-full relative"
+                                onClick={() => startEditing(item.originalIndex, item.entry)}
+                                style={{ width: '100%' }}
+                      >
+                              <p style={{ color: 'var(--glass-text-secondary)' }} className="whitespace-pre-wrap">
+                            {item.entry || 'No content'}
+                              </p>
+                              <p className="text-xs mt-2" style={{ color: 'var(--glass-text-secondary)' }}>
+                                Click to edit
+                              </p>
+                              
+                              {/* AI Enhancement Button - Bottom Right for Display Mode */}
+                              <button
+                                className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Prevent triggering the edit mode
+                                  handleAIEnhancement(item.originalIndex);
+                                }}
+                                title="AI Enhance Entry"
+                              >
+                                <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                </svg>
+                              </button>
+                      </div>
+                    )}
                   </div>
                       
                       {/* Delete Button */}
                       <div className="flex-shrink-0">
                   <button
-                            className="glass-button p-2 hover:bg-red-500/20 transition-colors duration-200 h-full flex items-center justify-center"
-                    onClick={() => deleteEntry(idx)}
+                            className="glass-button p-2 hover:bg-red-500/20 transition-colors duration-200 flex items-center justify-center h-full"
+                    onClick={() => deleteEntry(item.originalIndex)}
                     title="Delete entry"
                   >
                             <svg className="w-4 h-4" style={{ color: 'var(--glass-danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -613,6 +1156,10 @@ export default function BillingApp() {
                       </div>
                     </div>
                   </div>
+                    </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -706,6 +1253,166 @@ export default function BillingApp() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Enhancement Modal */}
+      {showAIModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="glass p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold" style={{ color: 'var(--glass-text)' }}>
+                ✨ AI Entry Enhancement
+              </h3>
+              <button 
+                onClick={() => setShowAIModal(false)}
+                className="text-2xl hover:opacity-70 transition-opacity"
+                style={{ color: 'var(--glass-text-secondary)' }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium mb-2" style={{ color: 'var(--glass-text)' }}>
+                  Current Entry:
+                </h4>
+                <p className="text-sm p-3 glass rounded" style={{ color: 'var(--glass-text-secondary)' }}>
+                  {entries[aiEnhancing]?.entry}
+                </p>
+              </div>
+              
+              <div>
+                <h4 className="font-medium mb-2" style={{ color: 'var(--glass-text)' }}>
+                  Choose an AI Enhancement:
+                </h4>
+                <p className="text-xs mb-3" style={{ color: 'var(--glass-text-secondary)' }}>
+                  Click any suggestion below to populate the text box with that enhancement
+                </p>
+                <div className="space-y-2">
+                  {aiSuggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      className="w-full text-left p-4 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 border-2 border-transparent hover:border-blue-400/30"
+                      onClick={() => applyAISuggestion(suggestion)}
+                      onMouseEnter={() => setPreviewSuggestion(suggestion)}
+                      onMouseLeave={() => setPreviewSuggestion(null)}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-medium text-sm" style={{ color: 'var(--glass-text)' }}>
+                            {suggestion.title}
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                            {suggestion.description}
+                          </p>
+                          {/* Quality indicator */}
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="w-16 h-1 bg-gray-200 rounded-full">
+                              <div 
+                                className="h-1 bg-green-400 rounded-full" 
+                                style={{ width: `${suggestion.qualityScore}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs text-green-400">{suggestion.qualityScore}% quality</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs px-2 py-1 glass rounded-full">
+                            {suggestion.confidence}% match
+                          </span>
+                          <p className="text-xs mt-1" style={{ color: 'var(--glass-accent)' }}>
+                            +{suggestion.suggestedHours - entries[aiEnhancing]?.hours}h
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs font-mono mt-2 p-2 glass rounded" style={{ color: 'var(--glass-text-secondary)' }}>
+                        "{suggestion.enhancedText}"
+                      </p>
+                      <div className="mt-2 text-xs" style={{ color: 'var(--glass-accent)' }}>
+                        ✨ Click to apply this enhancement
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="text-center pt-2">
+                <p className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                  The selected enhancement will populate the text box for you to review and edit
+                </p>
+              </div>
+              
+              {/* User Preferences */}
+              <div className="mt-4 p-3 glass rounded-lg">
+                <h5 className="font-medium text-sm mb-2" style={{ color: 'var(--glass-text)' }}>
+                  AI Preferences
+                </h5>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Style</label>
+                    <select 
+                      value={userPreferences.preferredStyle}
+                      onChange={(e) => setUserPreferences(prev => ({...prev, preferredStyle: e.target.value}))}
+                      className="w-full p-1 glass rounded text-xs"
+                    >
+                      <option value="concise">Concise</option>
+                      <option value="comprehensive">Comprehensive</option>
+                      <option value="detailed">Detailed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Focus</label>
+                    <select 
+                      value={userPreferences.legalFocus}
+                      onChange={(e) => setUserPreferences(prev => ({...prev, legalFocus: e.target.value}))}
+                      className="w-full p-1 glass rounded text-xs"
+                    >
+                      <option value="general">General</option>
+                      <option value="litigation">Litigation</option>
+                      <option value="transactional">Transactional</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Hours</label>
+                    <select 
+                      value={userPreferences.hourPreference}
+                      onChange={(e) => setUserPreferences(prev => ({...prev, hourPreference: e.target.value}))}
+                      className="w-full p-1 glass rounded text-xs"
+                    >
+                      <option value="conservative">Conservative</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="generous">Generous</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Preview Panel */}
+      {previewSuggestion && (
+        <div className="fixed right-4 top-1/2 transform -translate-y-1/2 w-80 glass p-4 rounded-lg z-50 max-h-96 overflow-y-auto">
+          <h4 className="font-medium mb-2 text-sm" style={{ color: 'var(--glass-text)' }}>
+            Preview Enhancement
+          </h4>
+          <p className="text-xs mb-2" style={{ color: 'var(--glass-text-secondary)' }}>
+            {previewSuggestion.title}
+          </p>
+          <p className="text-xs font-mono p-2 glass rounded" style={{ color: 'var(--glass-text-secondary)' }}>
+            "{previewSuggestion.enhancedText}"
+          </p>
+          <div className="mt-2 flex justify-between text-xs">
+            <span style={{ color: 'var(--glass-accent)' }}>
+              +{previewSuggestion.suggestedHours - entries[aiEnhancing]?.hours}h
+            </span>
+            <span className="text-green-400">
+              {previewSuggestion.qualityScore}% quality
+            </span>
           </div>
         </div>
       )}
