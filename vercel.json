@@ -26,6 +26,9 @@
     },
     "api/templates/[id].js": {
       "maxDuration": 10
+    },
+    "api/enhanceBilling.js": {
+      "maxDuration": 30
     }
   }
 }
