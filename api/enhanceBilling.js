@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { getSuggestedTemplates, getTemplateSuggestionsForPrompt, checkWordFlags, anonymizeText } from '../server/services/ai.js';
+import { getSuggestedTemplates, getTemplateSuggestionsForPrompt, checkWordFlags } from '../server/services/ai.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -42,13 +42,9 @@ export default async function handler(req, res) {
       } : null
     });
 
-    // Check for flagged words
+    // Check for flagged words (for logging purposes)
     const wordFlags = await checkWordFlags(entryText);
     const hasFlaggedWords = wordFlags && wordFlags.length > 0;
-    
-    // Anonymize text if needed
-    const anonymizedText = hasFlaggedWords ? await anonymizeText(entryText) : entryText;
-    const isAnonymized = anonymizedText !== entryText;
 
     // Get template context for AI
     const templateContext = getTemplateSuggestionsForPrompt(templateSuggestions, entryText);
@@ -58,7 +54,7 @@ export default async function handler(req, res) {
 You are a legal billing assistant specializing in enhancing existing billing entries. Your task is to provide 3 different enhancement suggestions for the given billing entry.
 
 CURRENT BILLING ENTRY:
-"${anonymizedText}"
+"${entryText}"
 
 CASE CONTEXT:
 - Case Name: ${caseName || 'Not specified'}
@@ -178,7 +174,7 @@ Focus on making each suggestion distinct and valuable while staying true to the 
     console.log('✅ Enhancement suggestions generated successfully:', {
       suggestionCount: cleanedSuggestions.length,
       tokensUsed: completion.usage?.total_tokens || 0,
-      anonymized: isAnonymized,
+      hasFlaggedWords: hasFlaggedWords,
       timestamp: new Date().toISOString()
     });
 
@@ -187,7 +183,7 @@ Focus on making each suggestion distinct and valuable while staying true to the 
       suggestions: cleanedSuggestions,
       metadata: {
         originalLength: entryText.length,
-        anonymized: isAnonymized,
+        hasFlaggedWords: hasFlaggedWords,
         templateContext: templateSuggestions?.length || 0,
         tokensUsed: completion.usage?.total_tokens || 0
       }
