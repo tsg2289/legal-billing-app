@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   
   // Enable CORS with more restrictive settings
   res.setHeader('Access-Control-Allow-Origin', process.env.NODE_ENV === 'production' 
-    ? 'https://your-domain.vercel.app' // Replace with your actual domain
+    ? 'https://legal-billing-app.vercel.app' // Your actual Vercel domain
     : '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
