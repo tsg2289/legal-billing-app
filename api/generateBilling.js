@@ -99,7 +99,7 @@ export default async function handler(req, res) {
     const prompt = `
 You are a legal billing assistant drafting time entries for a law firm. Based on the inputs below, write a detailed and professional billing entry suitable for a client invoice.
 
-The format should start with a time estimate (e.g., "0.6:", "1.2:"), and the entry should clearly describe the task performed using formal legal billing language. Avoid vague or generic phrases. Be specific about what was reviewed, drafted, or discussed.
+The entry should clearly describe the task performed using formal legal billing language. Avoid vague or generic phrases. Be specific about what was reviewed, drafted, or discussed.
 
 Inputs:
 - File Number: ${sanitizedFileNumber || 'Not specified'}
@@ -107,15 +107,17 @@ Inputs:
 - Task Description: ${sanitizedDescription}
 
 Requirements:
-1. Start with a time estimate (e.g., "0.6:", "1.2:")
-2. Use formal legal billing language
-3. Be specific about tasks performed
-4. Avoid vague or generic phrases
-5. Include relevant legal terminology
-6. Keep entry concise but detailed
-7. Focus on the actual work described
+1. Use formal legal billing language
+2. Be specific about tasks performed
+3. Avoid vague or generic phrases
+4. Include relevant legal terminology
+5. Keep entry concise but detailed
+6. Focus on the actual work described
+7. DO NOT reference or include the case name in the billing entry text
+8. Write the entry as if it will be used for any case - keep it generic and professional
+9. DO NOT include time estimates (no "0.6:", "1.2:", etc.)
 
-Output: Single billing entry line starting with time estimate
+Output: Single billing entry line without time estimate
 `;
 
     console.log('🤖 Generating billing entry with AI...', {
@@ -128,7 +130,7 @@ Output: Single billing entry line starting with time estimate
       messages: [
         {
           role: 'system',
-          content: 'You are a legal billing assistant that creates professional, detailed billing entries for law firms. Always respond with a single billing entry line starting with a time estimate (e.g., "0.6:", "1.2:").'
+          content: 'You are a legal billing assistant that creates professional, detailed billing entries for law firms. Always respond with a single billing entry line without time estimates. Do not reference case names in the billing text.'
         },
         {
           role: 'user',

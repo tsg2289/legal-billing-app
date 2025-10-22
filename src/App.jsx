@@ -25,10 +25,10 @@ export default function BillingApp() {
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [showAIModal, setShowAIModal] = useState(false);
   const [previewSuggestion, setPreviewSuggestion] = useState(null);
-  const [userPreferences, setUserPreferences] = useState({
-    preferredStyle: 'comprehensive', // 'concise', 'comprehensive', 'detailed'
-    legalFocus: 'general', // 'litigation', 'transactional', 'compliance'
-    hourPreference: 'moderate' // 'conservative', 'moderate', 'generous'
+  const [userPreferences] = useState({
+    preferredStyle: 'comprehensive',
+    legalFocus: 'general', 
+    hourPreference: 'moderate'
   });
 
   // Load templates on component mount
@@ -152,15 +152,15 @@ export default function BillingApp() {
 
   // Function to extract hours from billing entry text
   const extractHours = (entryText) => {
-    // Look for patterns like "0.5:", "1.2:", "0.8:", etc.
-    const match = entryText.match(/^(\d+(?:\.\d+)?):/);
-    return match ? parseFloat(match[1]) : 0;
+    // Since AI no longer generates time estimates, return 0
+    // Users will need to manually set hours
+    return 0;
   };
 
   // Function to remove hours prefix from text for display/editing
   const removeHoursFromText = (entryText) => {
-    // Remove the hours prefix (e.g., "0.5: " from "0.5: Some text")
-    return entryText.replace(/^\d+(?:\.\d+)?:\s*/, '');
+    // Since AI no longer generates time estimates, return text as-is
+    return entryText;
   };
 
   const handleGenerate = async () => {
@@ -305,272 +305,48 @@ export default function BillingApp() {
     
     try {
       const currentEntry = entries[entryIndex];
-      // Generate intelligent suggestions based on existing templates and current text
-      const suggestions = generateAISuggestions(currentEntry.entry, currentEntry.hours, currentEntry.case);
-      setAiSuggestions(suggestions);
+      
+      // Call the new API endpoint for AI enhancement suggestions
+      const response = await fetch('/api/enhanceBilling', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          entryText: currentEntry.entry,
+          caseName: currentEntry.case,
+          fileNumber: undefined // We don't have file numbers in the current system
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to generate enhancement suggestions');
+      }
+
+      const data = await response.json();
+      if (data.success && data.suggestions) {
+        setAiSuggestions(data.suggestions);
+      } else {
+        throw new Error('Invalid response from enhancement service');
+      }
     } catch (error) {
       console.error('AI enhancement error:', error);
+      // Show error to user
+      setAiSuggestions([{
+        title: 'Error',
+        description: 'Failed to generate AI suggestions',
+        enhancedText: currentEntry.entry,
+        suggestedHours: currentEntry.hours,
+        confidence: 0,
+        type: 'error'
+      }]);
     }
-    // Don't reset aiEnhancing here - keep it for applyAISuggestion
   };
 
-  // Regenerate suggestions when preferences change
-  const regenerateSuggestions = () => {
+  // Regenerate suggestions using API
+  const regenerateSuggestions = async () => {
     if (aiEnhancing !== null) {
-      const currentEntry = entries[aiEnhancing];
-      const suggestions = generateAISuggestions(currentEntry.entry, currentEntry.hours, currentEntry.case);
-      setAiSuggestions(suggestions);
+      await handleAIEnhancement(aiEnhancing);
     }
-  };
-
-  // Effect to regenerate suggestions when preferences change
-  useEffect(() => {
-    if (showAIModal && aiEnhancing !== null) {
-      regenerateSuggestions();
-    }
-  }, [userPreferences, showAIModal, aiEnhancing]);
-
-  const generateAISuggestions = (entryText, hours, caseName) => {
-    // Enhanced text analysis and context understanding
-    const currentText = entryText.toLowerCase();
-    
-    // Enhanced subject extraction with more legal terms
-    const extractSubjects = (text) => {
-      const subjects = [];
-      const legalTerms = {
-        'plaintiff': 'plaintiff\'s claims and allegations',
-        'defendant': 'defendant\'s position and defenses',
-        'deposition': 'deposition preparation and strategy',
-        'discovery': 'discovery matters and documentation',
-        'damages': 'damages analysis and quantification',
-        'injury': 'injury claims and medical evidence',
-        'liability': 'liability issues and legal standards',
-        'interrogatory': 'interrogatory responses and analysis',
-        'exhibit': 'exhibit preparation and organization',
-        'motion': 'motion practice and legal arguments',
-        'settlement': 'settlement negotiations and strategy',
-        'trial': 'trial preparation and presentation',
-        'expert': 'expert witness preparation and testimony',
-        'mediation': 'mediation and alternative dispute resolution'
-      };
-      
-      Object.entries(legalTerms).forEach(([term, description]) => {
-        if (text.includes(term)) subjects.push(description);
-      });
-      
-      return subjects.length > 0 ? subjects : ['case matters and legal issues'];
-    };
-
-    // Enhanced pattern recognition
-    const detectLegalActivity = (text) => {
-      const patterns = {
-        analysis: ['analyze', 'review', 'examine', 'assess', 'evaluate'],
-        preparation: ['prepare', 'draft', 'create', 'develop', 'organize'],
-        research: ['research', 'investigate', 'study', 'investigate', 'explore'],
-        communication: ['correspond', 'discuss', 'meet', 'confer', 'consult'],
-        documentation: ['document', 'record', 'file', 'compile', 'organize'],
-        strategy: ['strategy', 'plan', 'approach', 'method', 'tactic']
-      };
-      
-      const detectedPatterns = [];
-      Object.entries(patterns).forEach(([pattern, keywords]) => {
-        if (keywords.some(keyword => text.includes(keyword))) {
-          detectedPatterns.push(pattern);
-        }
-      });
-      
-      return detectedPatterns;
-    };
-
-    // Detect case type and urgency
-    const detectCaseType = (caseName) => {
-      const name = caseName.toLowerCase();
-      if (name.includes('injury') || name.includes('accident')) return 'personal_injury';
-      if (name.includes('contract') || name.includes('agreement')) return 'contract';
-      if (name.includes('employment') || name.includes('labor')) return 'employment';
-      if (name.includes('family') || name.includes('divorce')) return 'family';
-      return 'general';
-    };
-
-    const detectUrgency = (text) => {
-      const urgentTerms = ['urgent', 'immediate', 'deadline', 'expedite', 'priority', 'asap'];
-      return urgentTerms.some(term => text.includes(term)) ? 'high' : 'normal';
-    };
-
-    const subjects = extractSubjects(currentText);
-    const primarySubject = subjects[0];
-    const detectedPatterns = detectLegalActivity(currentText);
-    const caseType = detectCaseType(caseName);
-    const urgency = detectUrgency(currentText);
-
-    // Generate intelligent suggestions based on current content
-    const suggestions = [];
-
-    // Suggestion 1: Comprehensive Legal Analysis
-    if (detectedPatterns.includes('analysis')) {
-      suggestions.push({
-        title: "Comprehensive Legal Analysis",
-        description: "Expand with detailed legal analysis including case law research and precedent review",
-        enhancedText: `Conduct comprehensive legal analysis of ${primarySubject} including thorough research of applicable case law, review of relevant legal precedents, analysis of statutory requirements, and preparation of detailed findings with supporting legal authority in anticipation of upcoming proceedings.`,
-        suggestedHours: Math.max(hours + 0.4, 0.7),
-        confidence: 95,
-        type: "analysis"
-      });
-    }
-
-    // Suggestion 2: Strategic Deposition Preparation
-    if (detectedPatterns.includes('preparation') || currentText.includes('deposition')) {
-      suggestions.push({
-        title: "Strategic Deposition Preparation",
-        description: "Develop comprehensive deposition strategy with detailed questioning approach",
-        enhancedText: `Develop comprehensive deposition strategy regarding ${primarySubject} including preparation of detailed lines of questioning, development of cross-examination techniques, identification of key areas for inquiry, preparation of follow-up questions, and strategic planning for effective witness examination in anticipation of deposition proceedings.`,
-        suggestedHours: Math.max(hours + 0.5, 0.8),
-        confidence: 92,
-        type: "deposition"
-      });
-    }
-
-    // Suggestion 3: Advanced Discovery Strategy
-    if (detectedPatterns.includes('documentation') || currentText.includes('discovery')) {
-      suggestions.push({
-        title: "Advanced Discovery Strategy",
-        description: "Create comprehensive discovery plan with detailed documentation approach",
-        enhancedText: `Develop comprehensive discovery strategy concerning ${primarySubject} including preparation of detailed interrogatories, requests for production of documents, requests for admission, analysis of potential responses, identification of additional discovery needs, and strategic planning for effective case development through discovery.`,
-        suggestedHours: Math.max(hours + 0.6, 0.9),
-        confidence: 88,
-        type: "discovery"
-      });
-    }
-
-    // Suggestion 4: Case Strategy Development
-    if (detectedPatterns.includes('strategy') || currentText.includes('case')) {
-      suggestions.push({
-        title: "Case Strategy Development",
-        description: "Develop comprehensive case strategy and defense approach",
-        enhancedText: `Develop comprehensive case strategy regarding ${primarySubject} including analysis of legal theories, identification of key evidence, preparation of defense arguments, strategic planning for case progression, and development of effective legal arguments to support client position.`,
-        suggestedHours: Math.max(hours + 0.5, 0.8),
-        confidence: 90,
-        type: "strategy"
-      });
-    }
-
-    // Suggestion 5: Comprehensive Research
-    if (detectedPatterns.includes('research') || currentText.includes('investigate')) {
-      suggestions.push({
-        title: "Comprehensive Research",
-        description: "Expand research scope with detailed investigation",
-        enhancedText: `Conduct comprehensive research regarding ${primarySubject} including investigation of relevant legal precedents, analysis of applicable statutes and regulations, review of expert opinions, preparation of research memorandum, and identification of key legal authorities to support case position.`,
-        suggestedHours: Math.max(hours + 0.4, 0.7),
-        confidence: 87,
-        type: "research"
-      });
-    }
-
-    // Context-aware suggestions
-    if (urgency === 'high') {
-      suggestions.push({
-        title: "Urgent Case Development",
-        description: "Accelerated preparation with priority focus",
-        enhancedText: `Prioritize urgent case development regarding ${primarySubject} including immediate research of critical legal issues, expedited preparation of essential documentation, and rapid development of case strategy to meet pressing deadlines and court requirements.`,
-        suggestedHours: Math.max(hours + 0.3, 0.6),
-        confidence: 90,
-        type: "urgent"
-      });
-    }
-
-    // Case-type specific enhancements
-    if (caseType === 'personal_injury') {
-      suggestions.push({
-        title: "Personal Injury Focus",
-        description: "Specialized approach for personal injury matters",
-        enhancedText: `Develop specialized personal injury case strategy regarding ${primarySubject} including analysis of medical evidence, evaluation of damages, preparation of expert witness materials, and comprehensive documentation of injury-related claims and supporting evidence.`,
-        suggestedHours: Math.max(hours + 0.4, 0.7),
-        confidence: 85,
-        type: "personal_injury"
-      });
-    }
-
-    // If no specific patterns match, provide general enhancement
-    if (suggestions.length === 0) {
-      suggestions.push({
-        title: "Professional Enhancement",
-        description: "Enhance with professional legal billing language",
-        enhancedText: `Conduct professional analysis and preparation regarding ${primarySubject} including comprehensive review, strategic planning, and detailed documentation in anticipation of case progression.`,
-        suggestedHours: Math.max(hours + 0.2, 0.4),
-        confidence: 75,
-        type: "general"
-      });
-    }
-
-    // Quality scoring and ranking
-    const scoreSuggestion = (suggestion, originalText) => {
-      let score = 0;
-      
-      // Length improvement score
-      const lengthImprovement = suggestion.enhancedText.length / originalText.length;
-      score += Math.min(lengthImprovement * 20, 30);
-      
-      // Legal terminology score
-      const legalTerms = ['analysis', 'preparation', 'strategy', 'comprehensive', 'thorough', 'anticipation', 'proceedings'];
-      const legalTermCount = legalTerms.filter(term => 
-        suggestion.enhancedText.toLowerCase().includes(term)
-      ).length;
-      score += legalTermCount * 5;
-      
-      // Professional language score
-      const professionalPhrases = ['in anticipation of', 'including', 'regarding', 'concerning', 'preparation of', 'development of'];
-      const professionalCount = professionalPhrases.filter(phrase => 
-        suggestion.enhancedText.toLowerCase().includes(phrase)
-      ).length;
-      score += professionalCount * 3;
-      
-      return Math.min(score, 100);
-    };
-
-    // Add quality scores and sort
-    suggestions.forEach(suggestion => {
-      suggestion.qualityScore = scoreSuggestion(suggestion, entryText);
-    });
-
-    // Sort by quality score
-    suggestions.sort((a, b) => b.qualityScore - a.qualityScore);
-
-    // Adjust suggestions based on user preferences
-    const adjustForPreferences = (suggestions, preferences) => {
-      return suggestions.map(suggestion => {
-        let adjustedSuggestion = { ...suggestion };
-        
-        if (preferences.preferredStyle === 'concise') {
-          // Make text more concise
-          adjustedSuggestion.enhancedText = adjustedSuggestion.enhancedText
-            .replace(/including thorough research of applicable case law, review of relevant legal precedents, analysis of statutory requirements, and preparation of detailed findings with supporting legal authority/g, 'including case law research and precedent analysis')
-            .replace(/including preparation of detailed lines of questioning, development of cross-examination techniques, identification of key areas for inquiry, preparation of follow-up questions, and strategic planning for effective witness examination/g, 'including questioning strategy and cross-examination preparation')
-            .replace(/including preparation of detailed interrogatories, requests for production of documents, requests for admission, analysis of potential responses, identification of additional discovery needs, and strategic planning for effective case development through discovery/g, 'including interrogatories, document requests, and discovery strategy');
-          
-          adjustedSuggestion.suggestedHours = Math.max(adjustedSuggestion.suggestedHours - 0.1, 0.2);
-        } else if (preferences.preferredStyle === 'detailed') {
-          // Add more detail
-          adjustedSuggestion.enhancedText = adjustedSuggestion.enhancedText
-            .replace(/comprehensive/g, 'thorough and comprehensive')
-            .replace(/analysis/g, 'detailed analysis')
-            .replace(/preparation/g, 'extensive preparation');
-          
-          adjustedSuggestion.suggestedHours = adjustedSuggestion.suggestedHours + 0.2;
-        }
-        
-        if (preferences.hourPreference === 'conservative') {
-          adjustedSuggestion.suggestedHours = Math.max(adjustedSuggestion.suggestedHours - 0.2, 0.1);
-        } else if (preferences.hourPreference === 'generous') {
-          adjustedSuggestion.suggestedHours = adjustedSuggestion.suggestedHours + 0.3;
-        }
-        
-        return adjustedSuggestion;
-      });
-    };
-
-    const adjustedSuggestions = adjustForPreferences(suggestions, userPreferences);
-
-    return adjustedSuggestions.slice(0, 3); // Return top 3 suggestions
   };
 
   const applyAISuggestion = (suggestion) => {
@@ -860,8 +636,8 @@ export default function BillingApp() {
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
               )}
               <span className="text-sm">{loading ? 'Generating...' : 'AI Generate'}</span>
           </button>
@@ -1340,16 +1116,6 @@ export default function BillingApp() {
                           <p className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
                             {suggestion.description}
                           </p>
-                          {/* Quality indicator */}
-                          <div className="flex items-center gap-2 mt-1">
-                            <div className="w-16 h-1 bg-gray-200 rounded-full">
-                              <div 
-                                className="h-1 bg-green-400 rounded-full" 
-                                style={{ width: `${suggestion.qualityScore}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-xs text-green-400">{suggestion.qualityScore}% quality</span>
-                          </div>
                         </div>
                         <div className="text-right">
                           <span className="text-xs px-2 py-1 glass rounded-full">
@@ -1377,50 +1143,6 @@ export default function BillingApp() {
                 </p>
               </div>
               
-              {/* User Preferences */}
-              <div className="mt-4 p-3 glass rounded-lg">
-                <h5 className="font-medium text-sm mb-2" style={{ color: 'var(--glass-text)' }}>
-                  AI Preferences
-                </h5>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Style</label>
-                    <select 
-                      value={userPreferences.preferredStyle}
-                      onChange={(e) => setUserPreferences(prev => ({...prev, preferredStyle: e.target.value}))}
-                      className="w-full p-1 glass rounded text-xs"
-                    >
-                      <option value="concise">Concise</option>
-                      <option value="comprehensive">Comprehensive</option>
-                      <option value="detailed">Detailed</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Focus</label>
-                    <select 
-                      value={userPreferences.legalFocus}
-                      onChange={(e) => setUserPreferences(prev => ({...prev, legalFocus: e.target.value}))}
-                      className="w-full p-1 glass rounded text-xs"
-                    >
-                      <option value="general">General</option>
-                      <option value="litigation">Litigation</option>
-                      <option value="transactional">Transactional</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block mb-1" style={{ color: 'var(--glass-text-secondary)' }}>Hours</label>
-                    <select 
-                      value={userPreferences.hourPreference}
-                      onChange={(e) => setUserPreferences(prev => ({...prev, hourPreference: e.target.value}))}
-                      className="w-full p-1 glass rounded text-xs"
-                    >
-                      <option value="conservative">Conservative</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="generous">Generous</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -1442,8 +1164,8 @@ export default function BillingApp() {
             <span style={{ color: 'var(--glass-accent)' }}>
               +{previewSuggestion.suggestedHours - entries[aiEnhancing]?.hours}h
             </span>
-            <span className="text-green-400">
-              {previewSuggestion.qualityScore}% quality
+            <span className="text-blue-400">
+              {previewSuggestion.confidence}% match
             </span>
           </div>
         </div>

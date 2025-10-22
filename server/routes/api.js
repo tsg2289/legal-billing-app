@@ -63,6 +63,63 @@ router.post('/generateBilling', async (req, res) => {
   }
 });
 
+// POST /api/enhanceBilling - Get AI enhancement suggestions for existing billing entry
+router.post('/enhanceBilling', async (req, res) => {
+  try {
+    const { entryText, caseName, fileNumber } = req.body;
+    
+    // Validate request
+    if (!entryText) {
+      return res.status(400).json({ 
+        error: 'Missing required field: entryText' 
+      });
+    }
+
+    console.log('📝 Received billing enhancement request:', {
+      fileNumber: fileNumber || 'Not specified',
+      caseName: caseName || 'Not specified',
+      entryLength: entryText.length,
+      timestamp: new Date().toISOString()
+    });
+
+    // Generate enhancement suggestions using AI
+    const suggestions = await aiService.generateEnhancementSuggestions({
+      entryText,
+      caseName,
+      fileNumber
+    });
+    
+    res.json({
+      success: true,
+      suggestions,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error in enhanceBilling:', error);
+    
+    // Handle specific AI service errors
+    if (error.message.includes('API key')) {
+      return res.status(500).json({
+        error: 'AI service configuration error',
+        message: 'Please check your OpenAI API key configuration'
+      });
+    }
+    
+    if (error.message.includes('quota') || error.message.includes('rate limit')) {
+      return res.status(429).json({
+        error: 'AI service temporarily unavailable',
+        message: error.message
+      });
+    }
+    
+    res.status(500).json({
+      error: 'Failed to generate enhancement suggestions',
+      message: error.message
+    });
+  }
+});
+
 // GET /api/health
 router.get('/health', (req, res) => {
   res.json({
