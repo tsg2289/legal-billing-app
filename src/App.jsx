@@ -175,22 +175,54 @@ export default function BillingApp() {
         })
       });
 
+      // Safe debugging - only log status and basic info
+      console.log('API Response Status:', response.status);
+      console.log('API Response OK:', response.ok);
+
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}`);
+        console.log('API Error Response:', {
+          status: response.status,
+          error: errorData.error,
+          message: errorData.message
+        });
+        
+        // Provide more specific error messages based on status codes
+        let userMessage;
+        if (response.status === 500) {
+          if (errorData.message?.includes('API key')) {
+            userMessage = '❌ AI service configuration error. Please contact support.';
+          } else if (errorData.message?.includes('quota')) {
+            userMessage = '❌ AI service quota exceeded. Please try again later.';
+          } else if (errorData.message?.includes('rate limit')) {
+            userMessage = '❌ Too many requests. Please wait a moment and try again.';
+          } else {
+            userMessage = '❌ AI service temporarily unavailable. Please try again.';
+          }
+        } else if (response.status === 400) {
+          userMessage = '❌ Invalid request. Please check your input and try again.';
+        } else if (response.status === 429) {
+          userMessage = '❌ Too many requests. Please wait a moment and try again.';
+        } else {
+          userMessage = '❌ Service temporarily unavailable. Please try again.';
+        }
+        
+        throw new Error(userMessage);
       }
 
       const data = await response.json();
-      const newEntry = data.result?.trim() || '⚠️ No response';
+      console.log('API Success - Response received');
+      
+      const newEntry = data.result?.trim() || '⚠️ No response generated';
       const hours = extractHours(newEntry);
 
       setEntries((prev) => [...prev, { case: caseName, entry: newEntry, hours }]);
       setDescription('');
     } catch (err) {
-      console.error('❌ Error:', err);
-      const errorMessage = err.message.includes('API key') 
-        ? '❌ AI service not configured. Please check your OpenAI API key.'
-        : '❌ Error generating billing entry.';
+      console.error('Billing generation error:', err.message);
+      
+      // Use the error message we created above, or fallback to generic message
+      const errorMessage = err.message || '❌ Error generating billing entry.';
       setEntries((prev) => [...prev, { case: caseName, entry: errorMessage, hours: 0 }]);
     }
     setLoading(false);

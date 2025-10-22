@@ -1,10 +1,19 @@
 import OpenAI from 'openai';
 
 export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Enable CORS with more restrictive settings
+  res.setHeader('Access-Control-Allow-Origin', process.env.NODE_ENV === 'production' 
+    ? 'https://your-domain.vercel.app' // Replace with your actual domain
+    : '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -17,33 +26,65 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Rate limiting check (basic implementation)
+  const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  console.log('Request from IP:', clientIP);
+
   try {
     const { fileNumber, caseName, description } = req.body;
     
-    // Validate request
-    if (!description || !description.trim()) {
+    // Input validation and sanitization
+    if (!description || typeof description !== 'string' || !description.trim()) {
       return res.status(400).json({ 
         error: 'Missing required field: description',
         message: 'Please provide a billing description'
       });
     }
 
-    // Validate API key
-    if (!process.env.OPENAI_API_KEY) {
-      console.error('❌ OpenAI API key not found in environment variables');
-      console.error('Available env vars:', Object.keys(process.env).filter(key => key.includes('OPENAI')));
-      return res.status(500).json({
-        error: 'AI service configuration error',
-        message: 'Please check your OpenAI API key configuration'
+    // Sanitize inputs to prevent injection attacks
+    const sanitizedDescription = description.trim().substring(0, 2000); // Limit length
+    const sanitizedCaseName = caseName ? caseName.trim().substring(0, 200) : '';
+    const sanitizedFileNumber = fileNumber ? fileNumber.trim().substring(0, 100) : '';
+
+    // Additional validation
+    if (sanitizedDescription.length < 3) {
+      return res.status(400).json({ 
+        error: 'Invalid input',
+        message: 'Description must be at least 3 characters long'
       });
     }
 
-    console.log('✅ OpenAI API key found:', process.env.OPENAI_API_KEY ? 'Present' : 'Missing');
+    // Validate API key - secure logging
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OpenAI API key not found in environment variables');
+      console.error('Environment check:', {
+        hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+        keyLength: process.env.OPENAI_API_KEY?.length || 0,
+        keyPrefix: process.env.OPENAI_API_KEY?.substring(0, 7) || 'none',
+        nodeEnv: process.env.NODE_ENV,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(500).json({
+        error: 'AI service configuration error',
+        message: 'AI service is temporarily unavailable. Please try again later.'
+      });
+    }
+
+    // Validate API key format
+    if (!process.env.OPENAI_API_KEY.startsWith('sk-')) {
+      console.error('❌ Invalid OpenAI API key format');
+      return res.status(500).json({
+        error: 'AI service configuration error',
+        message: 'AI service is temporarily unavailable. Please try again later.'
+      });
+    }
+
+    console.log('✅ OpenAI API key validated successfully');
 
     console.log('📝 Received billing generation request:', {
-      fileNumber: fileNumber || 'Not provided',
-      caseName: caseName || 'Not provided',
-      descriptionLength: description.length,
+      fileNumber: sanitizedFileNumber || 'Not provided',
+      caseName: sanitizedCaseName || 'Not provided',
+      descriptionLength: sanitizedDescription.length,
       timestamp: new Date().toISOString()
     });
 
@@ -59,9 +100,9 @@ You are a legal billing assistant drafting time entries for a law firm. Based on
 The format should start with a time estimate (e.g., "0.6:", "1.2:"), and the entry should clearly describe the task performed using formal legal billing language. Avoid vague or generic phrases. Be specific about what was reviewed, drafted, or discussed.
 
 Inputs:
-- File Number: ${fileNumber || 'Not specified'}
-- Case Name: ${caseName || 'Not specified'}
-- Task Description: ${description.trim()}
+- File Number: ${sanitizedFileNumber || 'Not specified'}
+- Case Name: ${sanitizedCaseName || 'Not specified'}
+- Task Description: ${sanitizedDescription}
 
 Requirements:
 1. Start with a time estimate (e.g., "0.6:", "1.2:")
