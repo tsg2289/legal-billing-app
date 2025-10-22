@@ -278,16 +278,25 @@ Return ONLY this JSON format (no other text):
         console.log('Raw AI response:', responseText);
         
         // Try to extract JSON from the response if it's wrapped in markdown
-        let jsonText = responseText;
-        if (responseText.includes('```json')) {
-          const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+        let jsonText = responseText.trim();
+        
+        // Remove markdown code blocks
+        if (jsonText.startsWith('```json') && jsonText.endsWith('```')) {
+          jsonText = jsonText.slice(7, -3).trim();
+        } else if (jsonText.startsWith('```') && jsonText.endsWith('```')) {
+          jsonText = jsonText.slice(3, -3).trim();
+        }
+        
+        // Additional fallback for any remaining markdown
+        if (jsonText.includes('```json')) {
+          const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```/);
           if (jsonMatch) {
-            jsonText = jsonMatch[1];
+            jsonText = jsonMatch[1].trim();
           }
-        } else if (responseText.includes('```')) {
-          const jsonMatch = responseText.match(/```\s*([\s\S]*?)\s*```/);
+        } else if (jsonText.includes('```')) {
+          const jsonMatch = jsonText.match(/```\s*([\s\S]*?)\s*```/);
           if (jsonMatch) {
-            jsonText = jsonMatch[1];
+            jsonText = jsonMatch[1].trim();
           }
         }
         

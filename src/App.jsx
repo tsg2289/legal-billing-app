@@ -77,7 +77,7 @@ export default function BillingApp() {
       if (data.success) {
         // Load full template data for each template
         const fullTemplates = await Promise.all(
-          data.templates.map(async (template) => {
+          (data.templates || []).map(async (template) => {
             try {
               const templateResponse = await fetch(`/api/templates/${template.id}`);
               const templateData = await templateResponse.json();
@@ -574,7 +574,7 @@ export default function BillingApp() {
                   
                   {showWordFlags && (
                     <div className="space-y-2">
-                      {wordFlags.map((flag, idx) => (
+                      {wordFlags && wordFlags.length > 0 && wordFlags.map((flag, idx) => (
                         <div key={idx} className="glass p-3 space-y-2" style={{ borderColor: 'var(--glass-warning)' }}>
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-sm" style={{ color: 'var(--glass-warning)' }}>
@@ -1021,7 +1021,7 @@ export default function BillingApp() {
             
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               <div className="space-y-6">
-                {templates.map((template) => (
+                {templates && templates.length > 0 && templates.map((template) => (
                   <div key={template.id} className="glass p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-medium" style={{ color: 'var(--glass-text)' }}>
@@ -1100,7 +1100,7 @@ export default function BillingApp() {
                   Click any suggestion below to populate the text box with that enhancement
                 </p>
                 <div className="space-y-2">
-                  {aiSuggestions.map((suggestion, idx) => (
+                  {aiSuggestions && aiSuggestions.length > 0 && aiSuggestions.map((suggestion, idx) => (
                     <button
                       key={idx}
                       className="w-full text-left p-4 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 border-2 border-transparent hover:border-blue-400/30"
