@@ -9,6 +9,12 @@
     "api/generateBilling.js": {
       "maxDuration": 30
     },
+    "api/test-openai.js": {
+      "maxDuration": 30
+    },
+    "api/test.js": {
+      "maxDuration": 10
+    },
     "api/templates.js": {
       "maxDuration": 10
     },
