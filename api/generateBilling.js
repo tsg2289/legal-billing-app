@@ -88,10 +88,12 @@ export default async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // Initialize OpenAI
+    // Initialize OpenAI with additional debugging
+    console.log('🤖 Initializing OpenAI client...');
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+    console.log('✅ OpenAI client initialized successfully');
 
     // Create the prompt
     const prompt = `
@@ -136,6 +138,14 @@ Output: Single billing entry line starting with time estimate
       max_tokens: 500,
       temperature: 0.7,
     });
+    
+    console.log('✅ OpenAI API call successful');
+    console.log('📊 Response details:', {
+      hasChoices: !!response.choices,
+      choicesLength: response.choices?.length || 0,
+      hasUsage: !!response.usage,
+      totalTokens: response.usage?.total_tokens || 0
+    });
 
     let billingEntry = response.choices[0]?.message?.content?.trim();
     
@@ -156,7 +166,13 @@ Output: Single billing entry line starting with time estimate
     });
 
   } catch (error) {
-    console.error('❌ Error in generateBilling:', error);
+    console.error('❌ Error in generateBilling:', {
+      message: error.message,
+      code: error.code,
+      type: error.type,
+      status: error.status,
+      stack: error.stack?.substring(0, 500) // Limit stack trace length
+    });
     
     // Handle specific AI service errors
     if (error.code === 'insufficient_quota') {
@@ -187,9 +203,10 @@ Output: Single billing entry line starting with time estimate
       });
     }
     
+    // Generic error response
     res.status(500).json({
       error: 'Failed to generate billing entry',
-      message: error.message
+      message: 'AI service temporarily unavailable. Please try again later.'
     });
   }
 } 
