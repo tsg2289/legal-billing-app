@@ -1,47 +1,17 @@
-const templates = {
-  'discovery': {
-    id: 'discovery',
-    name: 'Discovery',
-    time: '0.5',
-    description: 'Review and analyze discovery documents received from opposing party',
-    content: 'Review and analyze discovery documents received from opposing party, including interrogatories, requests for production, and requests for admission. Identify key facts, inconsistencies, and areas requiring follow-up investigation.'
-  },
-  'litigation-general': {
-    id: 'litigation-general',
-    name: 'Litigation General',
-    time: '1.0',
-    description: 'General litigation work including case strategy and client communication',
-    content: 'Conduct general litigation activities including case strategy development, client communication regarding case status, review of case file, and preparation for upcoming deadlines.'
-  },
-  'motion-practice': {
-    id: 'motion-practice',
-    name: 'Motion Practice',
-    time: '2.0',
-    description: 'Draft and file motion with supporting memorandum of law',
-    content: 'Draft motion with supporting memorandum of law, including legal research, citation formatting, and preparation of exhibits. File motion with court and serve on opposing counsel.'
-  },
-  'protective-order': {
-    id: 'protective-order',
-    name: 'Protective Order',
-    time: '1.5',
-    description: 'Draft protective order to safeguard confidential information',
-    content: 'Draft protective order to safeguard confidential information exchanged during discovery, including provisions for handling sensitive documents and maintaining confidentiality.'
-  },
-  'protective-order-expanded': {
-    id: 'protective-order-expanded',
-    name: 'Protective Order (Expanded)',
-    time: '3.0',
-    description: 'Draft comprehensive protective order with detailed confidentiality provisions',
-    content: 'Draft comprehensive protective order with detailed confidentiality provisions, including specific procedures for handling confidential information, return of documents, and enforcement mechanisms.'
-  },
-  'subpoena-deposition': {
-    id: 'subpoena-deposition',
-    name: 'Subpoena Deposition',
-    time: '1.0',
-    description: 'Prepare and serve subpoena for deposition testimony',
-    content: 'Prepare subpoena for deposition testimony, including proper service requirements, scheduling coordination, and preparation of deposition outline.'
-  }
-};
+import fs from 'fs';
+import path from 'path';
+
+// Read template files from server/templates directory
+const templatesDir = path.join(process.cwd(), 'server', 'templates');
+
+const templates = {};
+const templateFiles = fs.readdirSync(templatesDir).filter(file => file.endsWith('.json'));
+
+templateFiles.forEach(file => {
+  const templatePath = path.join(templatesDir, file);
+  const templateData = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
+  templates[templateData.id] = templateData;
+});
 
 export default function handler(req, res) {
   // Set CORS headers

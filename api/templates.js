@@ -1,41 +1,23 @@
-const templates = [
-  {
-    id: 'discovery',
-    name: 'Discovery',
-    time: '0.5',
-    description: 'Review and analyze discovery documents received from opposing party'
-  },
-  {
-    id: 'litigation-general',
-    name: 'Litigation General',
-    time: '1.0',
-    description: 'General litigation work including case strategy and client communication'
-  },
-  {
-    id: 'motion-practice',
-    name: 'Motion Practice',
-    time: '2.0',
-    description: 'Draft and file motion with supporting memorandum of law'
-  },
-  {
-    id: 'protective-order',
-    name: 'Protective Order',
-    time: '1.5',
-    description: 'Draft protective order to safeguard confidential information'
-  },
-  {
-    id: 'protective-order-expanded',
-    name: 'Protective Order (Expanded)',
-    time: '3.0',
-    description: 'Draft comprehensive protective order with detailed confidentiality provisions'
-  },
-  {
-    id: 'subpoena-deposition',
-    name: 'Subpoena Deposition',
-    time: '1.0',
-    description: 'Prepare and serve subpoena for deposition testimony'
-  }
-];
+import fs from 'fs';
+import path from 'path';
+
+// Read template files from server/templates directory
+const templatesDir = path.join(process.cwd(), 'server', 'templates');
+const templateFiles = fs.readdirSync(templatesDir).filter(file => file.endsWith('.json'));
+
+const templates = templateFiles.map(file => {
+  const templatePath = path.join(templatesDir, file);
+  const templateData = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
+  
+  // Return the main template info
+  return {
+    id: templateData.id,
+    name: templateData.name,
+    description: templateData.description,
+    category: templateData.category,
+    templateCount: templateData.templates ? templateData.templates.length : 0
+  };
+});
 
 export default function handler(req, res) {
   // Set CORS headers
