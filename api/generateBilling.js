@@ -30,11 +30,15 @@ export default async function handler(req, res) {
 
     // Validate API key
     if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OpenAI API key not found in environment variables');
+      console.error('Available env vars:', Object.keys(process.env).filter(key => key.includes('OPENAI')));
       return res.status(500).json({
         error: 'AI service configuration error',
         message: 'Please check your OpenAI API key configuration'
       });
     }
+
+    console.log('✅ OpenAI API key found:', process.env.OPENAI_API_KEY ? 'Present' : 'Missing');
 
     console.log('📝 Received billing generation request:', {
       fileNumber: fileNumber || 'Not provided',
