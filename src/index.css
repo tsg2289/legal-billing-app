@@ -83,7 +83,7 @@ body {
   background: var(--glass-gradient);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
+  border: 1px solid transparent;
   border-radius: 20px;
   box-shadow: 0 8px 32px var(--glass-shadow);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -91,7 +91,7 @@ body {
 
 .glass:hover {
   background: var(--glass-gradient-hover);
-  border-color: var(--glass-border-hover);
+  border-color: transparent;
   box-shadow: 0 12px 40px var(--glass-shadow-hover);
   transform: translateY(-2px);
 }

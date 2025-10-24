@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 export default function BillingApp() {
   const [caseName, setCaseName] = useState('');
   const [description, setDescription] = useState('');
+  const [descriptions, setDescriptions] = useState([]); // Array of description objects
   const [entries, setEntries] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingText, setEditingText] = useState('');
@@ -30,6 +31,17 @@ export default function BillingApp() {
     legalFocus: 'general', 
     hourPreference: 'moderate'
   });
+  const [addingEntryToCase, setAddingEntryToCase] = useState(null);
+  const [newEntryText, setNewEntryText] = useState('');
+  const [caseEntryLoading, setCaseEntryLoading] = useState(false);
+  const [caseEntryTemplates, setCaseEntryTemplates] = useState(false);
+  const [groups, setGroups] = useState({}); // { caseName: [{ id, title, order }] }
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editingGroupTitle, setEditingGroupTitle] = useState('');
+  const [draggedGroup, setDraggedGroup] = useState(null);
+  const [dragOverGroup, setDragOverGroup] = useState(null);
+  const [draggedGroupCase, setDraggedGroupCase] = useState(null);
+  const [dragOverEntryGroup, setDragOverEntryGroup] = useState(null);
 
   // Load templates on component mount
   useEffect(() => {
@@ -166,64 +178,69 @@ export default function BillingApp() {
   const handleGenerate = async () => {
     setLoading(true);
     try {
+      if (descriptions.length === 0) {
+        alert('Please add some descriptions before generating AI content.');
+        setLoading(false);
+        return;
+      }
+
+      // Process each description
+      const newEntries = [];
+      
+      for (let i = 0; i < descriptions.length; i++) {
+        const desc = descriptions[i];
+        
+    try {
       const response = await fetch('/api/generateBilling', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          caseName,
-          description 
+              caseName: desc.case,
+              description: desc.text
         })
       });
 
-      // Safe debugging - only log status and basic info
-      console.log('API Response Status:', response.status);
-      console.log('API Response OK:', response.ok);
-
       if (!response.ok) {
         const errorData = await response.json();
-        console.log('API Error Response:', {
-          status: response.status,
-          error: errorData.error,
-          message: errorData.message
-        });
-        
-        // Provide more specific error messages based on status codes
-        let userMessage;
-        if (response.status === 500) {
-          if (errorData.message?.includes('API key')) {
-            userMessage = '❌ AI service configuration error. Please contact support.';
-          } else if (errorData.message?.includes('quota')) {
-            userMessage = '❌ AI service quota exceeded. Please try again later.';
-          } else if (errorData.message?.includes('rate limit')) {
-            userMessage = '❌ Too many requests. Please wait a moment and try again.';
-          } else {
-            userMessage = '❌ AI service temporarily unavailable. Please try again.';
+            throw new Error(errorData.message || 'AI generation failed');
           }
-        } else if (response.status === 400) {
-          userMessage = '❌ Invalid request. Please check your input and try again.';
-        } else if (response.status === 429) {
-          userMessage = '❌ Too many requests. Please wait a moment and try again.';
-        } else {
-          userMessage = '❌ Service temporarily unavailable. Please try again.';
+
+          const data = await response.json();
+          const generatedText = data.result?.trim() || '⚠️ No response generated';
+          const hours = extractHours(generatedText);
+
+          // Create new entry with AI-generated content
+          newEntries.push({
+            id: Date.now() + i,
+            case: desc.case,
+            entry: generatedText,
+            hours: hours,
+            date: new Date().toISOString().split('T')[0]
+          });
+
+        } catch (error) {
+          console.error(`Error generating entry ${i + 1}:`, error.message);
+          // Add error entry
+          newEntries.push({
+            id: Date.now() + i,
+            case: desc.case,
+            entry: `❌ AI generation failed: ${error.message}`,
+            hours: 0,
+            date: new Date().toISOString().split('T')[0]
+          });
         }
-        
-        throw new Error(userMessage);
       }
 
-      const data = await response.json();
-      console.log('API Success - Response received');
+      // Add all new entries to the existing entries
+      setEntries(prev => [...prev, ...newEntries]);
       
-      const newEntry = data.result?.trim() || '⚠️ No response generated';
-      const hours = extractHours(newEntry);
+      // Clear descriptions after successful generation
+      setDescriptions([]);
+      setDescription(''); // Clear the description field
 
-      setEntries((prev) => [...prev, { case: caseName, entry: newEntry, hours }]);
-      setDescription('');
     } catch (err) {
       console.error('Billing generation error:', err.message);
-      
-      // Use the error message we created above, or fallback to generic message
-      const errorMessage = err.message || '❌ Error generating billing entry.';
-      setEntries((prev) => [...prev, { case: caseName, entry: errorMessage, hours: 0 }]);
+      alert(`Error: ${err.message}`);
     }
     setLoading(false);
   };
@@ -243,6 +260,310 @@ export default function BillingApp() {
     setEditingIndex(newIndex);
     setEditingText('');
     setEditingHours(false);
+  };
+
+  const handleAddEntry = () => {
+    if (description.trim() && caseName.trim()) {
+      const newDescription = {
+        id: Date.now(),
+        text: description.trim(),
+        case: caseName.trim()
+      };
+      
+      setDescriptions(prev => [...prev, newDescription]);
+      
+      // Clear the form for next entry
+      setDescription('');
+      
+      // Show success message
+      console.log('Description added successfully');
+    } else {
+      alert('Please fill in both case name and description before adding an entry.');
+    }
+  };
+
+  // Case-level entry functions
+  const handleAddEntryToCase = (caseName) => {
+    if (newEntryText.trim()) {
+      const newEntry = {
+        id: Date.now(),
+        case: caseName,
+        group: null, // Always start as ungrouped (staging area)
+        entry: newEntryText.trim(),
+        hours: 0,
+        date: new Date().toISOString().split('T')[0]
+      };
+      
+      setEntries(prev => [...prev, newEntry]);
+      setNewEntryText('');
+      setAddingEntryToCase(null);
+      
+      console.log('Entry added to staging area:', caseName);
+    } else {
+      alert('Please enter a description for the new entry.');
+    }
+  };
+
+  const handleAIGenerateForCase = async (caseName) => {
+    if (!newEntryText.trim()) {
+      alert('Please enter a description before generating AI content.');
+      return;
+    }
+
+    setCaseEntryLoading(true);
+    try {
+      const response = await fetch('/api/generateBilling', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          caseName: caseName,
+          description: newEntryText.trim()
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'AI generation failed');
+      }
+
+      const data = await response.json();
+      const generatedText = data.result?.trim() || '⚠️ No response generated';
+      const hours = extractHours(generatedText);
+
+            const newEntry = {
+              id: Date.now(),
+              case: caseName,
+              group: null, // Always start as ungrouped (staging area)
+              entry: generatedText,
+              hours: hours,
+              date: new Date().toISOString().split('T')[0]
+            };
+            
+            setEntries(prev => [...prev, newEntry]);
+            setNewEntryText('');
+            setAddingEntryToCase(null);
+
+    } catch (error) {
+      console.error('AI generation error for case:', error.message);
+      alert(`Error: ${error.message}`);
+    }
+    setCaseEntryLoading(false);
+  };
+
+  const handleManualEntryForCase = (caseName) => {
+    const newEntry = {
+      id: Date.now(),
+      case: caseName,
+      group: null, // Always start as ungrouped (staging area)
+      entry: '',
+      hours: 0,
+      date: new Date().toISOString().split('T')[0]
+    };
+    
+    setEntries(prev => [...prev, newEntry]);
+    setAddingEntryToCase(null);
+    
+    // Start editing the new entry immediately
+    const newIndex = entries.length;
+    setEditingIndex(newIndex);
+    setEditingText('');
+    setEditingHours(false);
+  };
+
+  const startAddingEntryToCase = (caseName) => {
+    setAddingEntryToCase(caseName);
+    setNewEntryText('');
+  };
+
+  const cancelAddingEntryToCase = () => {
+    setAddingEntryToCase(null);
+    setNewEntryText('');
+    setCaseEntryTemplates(false);
+  };
+
+  // Group management functions
+  const createGroup = (caseName) => {
+    const groupId = Date.now();
+    const currentGroups = groups[caseName] || [];
+    const newGroup = {
+      id: groupId,
+      title: 'New Group',
+      order: currentGroups.length
+    };
+    
+    setGroups(prev => ({
+      ...prev,
+      [caseName]: [...currentGroups, newGroup]
+    }));
+    
+    // Start editing the group title immediately
+    setEditingGroup(groupId);
+    setEditingGroupTitle('New Group');
+  };
+
+  const renameGroup = (caseName, groupId, newTitle) => {
+    if (!newTitle.trim()) return;
+    
+    setGroups(prev => ({
+      ...prev,
+      [caseName]: prev[caseName]?.map(group => 
+        group.id === groupId ? { ...group, title: newTitle.trim() } : group
+      ) || []
+    }));
+    
+    setEditingGroup(null);
+    setEditingGroupTitle('');
+  };
+
+  const deleteGroup = (caseName, groupId) => {
+    // Move all entries from this group to ungrouped
+    setEntries(prev => prev.map(entry => 
+      entry.case === caseName && entry.group === groupId 
+        ? { ...entry, group: null }
+        : entry
+    ));
+    
+    // Remove the group
+    setGroups(prev => ({
+      ...prev,
+      [caseName]: prev[caseName]?.filter(group => group.id !== groupId) || []
+    }));
+  };
+
+  const moveEntryToGroup = (entryId, targetGroupId) => {
+    setEntries(prev => prev.map(entry => 
+      entry.id === entryId ? { ...entry, group: targetGroupId } : entry
+    ));
+  };
+
+  const removeEntryFromGroup = (entryId) => {
+    setEntries(prev => prev.map(entry => 
+      entry.id === entryId ? { ...entry, group: null } : entry
+    ));
+  };
+
+  const startEditingGroup = (groupId, currentTitle) => {
+    setEditingGroup(groupId);
+    setEditingGroupTitle(currentTitle);
+  };
+
+  const cancelEditingGroup = () => {
+    setEditingGroup(null);
+    setEditingGroupTitle('');
+  };
+
+  // Group drag and drop functions
+  const handleGroupDragStart = (e, groupId, caseName) => {
+    setDraggedGroup(groupId);
+    setDraggedGroupCase(caseName);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleGroupDragOver = (e, groupId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverGroup(groupId);
+  };
+
+  const handleGroupDragLeave = () => {
+    setDragOverGroup(null);
+  };
+
+  const handleGroupDrop = (e, targetGroupId, caseName) => {
+    e.preventDefault();
+    if (draggedGroup && draggedGroup !== targetGroupId && draggedGroupCase === caseName) {
+      reorderGroups(caseName, draggedGroup, targetGroupId);
+    }
+    setDraggedGroup(null);
+    setDragOverGroup(null);
+    setDraggedGroupCase(null);
+  };
+
+  const handleGroupDragEnd = () => {
+    setDraggedGroup(null);
+    setDragOverGroup(null);
+    setDraggedGroupCase(null);
+  };
+
+  // Entry-to-group drag and drop functions
+  const handleEntryDragOverGroup = (e, groupId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverEntryGroup(groupId);
+  };
+
+  const handleEntryDragLeaveGroup = () => {
+    setDragOverEntryGroup(null);
+  };
+
+  const handleEntryDropOnGroup = (e, groupId, caseName) => {
+    e.preventDefault();
+    if (draggedEntry !== null) {
+      const entry = entries[draggedEntry];
+      if (entry && entry.case === caseName) {
+        moveEntryToGroup(entry.id, groupId);
+      }
+    }
+    setDragOverEntryGroup(null);
+  };
+
+  const handleEntryDropOnUngrouped = (e, caseName) => {
+    e.preventDefault();
+    if (draggedEntry !== null) {
+      const entry = entries[draggedEntry];
+      if (entry && entry.case === caseName) {
+        removeEntryFromGroup(entry.id);
+      }
+    }
+    setDragOverEntryGroup(null);
+  };
+
+  const reorderGroups = (caseName, draggedGroupId, targetGroupId) => {
+    setGroups(prev => {
+      const caseGroups = prev[caseName] || [];
+      const draggedIndex = caseGroups.findIndex(group => group.id === draggedGroupId);
+      const targetIndex = caseGroups.findIndex(group => group.id === targetGroupId);
+      
+      if (draggedIndex === -1 || targetIndex === -1) return prev;
+      
+      const newGroups = [...caseGroups];
+      const [draggedGroup] = newGroups.splice(draggedIndex, 1);
+      newGroups.splice(targetIndex, 0, draggedGroup);
+      
+      // Update order values
+      const updatedGroups = newGroups.map((group, index) => ({
+        ...group,
+        order: index
+      }));
+      
+      return {
+        ...prev,
+        [caseName]: updatedGroups
+      };
+    });
+  };
+
+  // Helper functions
+  const getEntriesByGroup = (caseName) => {
+    const caseEntries = entries.filter(entry => entry.case === caseName);
+    const caseGroups = groups[caseName] || [];
+    
+    const grouped = {};
+    caseGroups.forEach(group => {
+      grouped[group.id] = {
+        ...group,
+        entries: caseEntries.filter(entry => entry.group === group.id)
+      };
+    });
+    
+    // Add ungrouped entries
+    grouped['ungrouped'] = {
+      id: 'ungrouped',
+      title: 'Ungrouped Entries',
+      entries: caseEntries.filter(entry => !entry.group)
+    };
+    
+    return grouped;
   };
 
   // Calculate total hours
@@ -613,6 +934,60 @@ export default function BillingApp() {
                       </div>
                       </div>
                       
+          {/* Add Entry Button */}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleAddEntry}
+              className="w-full glass-button flex items-center justify-center gap-2 py-2 px-4 text-sm font-medium transition-all duration-200 hover:bg-opacity-20"
+              style={{ 
+                color: 'var(--glass-accent)',
+                borderColor: 'var(--glass-accent)',
+                borderWidth: '1px',
+                borderStyle: 'solid'
+              }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add Entry</span>
+            </button>
+          </div>
+
+          {/* Display Added Descriptions */}
+          {descriptions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <h4 className="text-sm font-medium" style={{ color: 'var(--glass-text)' }}>
+                Added Descriptions ({descriptions.length})
+              </h4>
+              <div className="space-y-2">
+                {descriptions.map((desc, index) => (
+                  <div key={desc.id} className="glass p-3 rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="text-xs font-medium mb-1" style={{ color: 'var(--glass-accent)' }}>
+                          {desc.case}
+                        </div>
+                        <div className="text-sm" style={{ color: 'var(--glass-text)' }}>
+                          {desc.text}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setDescriptions(prev => prev.filter(d => d.id !== desc.id));
+                        }}
+                        className="ml-2 text-xs glass-button px-2 py-1 hover:bg-opacity-20"
+                        style={{ color: 'var(--glass-text-secondary)' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+                      
           {/* Entry Generation Buttons */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Button 1: Manual Entry (No AI) */}
@@ -639,7 +1014,7 @@ export default function BillingApp() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                 </svg>
               )}
-              <span className="text-sm">{loading ? 'Generating...' : 'AI Generate'}</span>
+              <span className="text-sm">{loading ? 'Generating...' : 'AI Generate All'}</span>
           </button>
 
             {/* Button 3: Templates */}
@@ -796,178 +1171,633 @@ export default function BillingApp() {
                     </button>
                     </div>
                     
-                  {/* Entries for this case */}
+                  {/* Groups Management Section */}
                   {!collapsedCases.has(caseName) && (
-                    <div className="space-y-1">
-                      {caseEntries.map((item, idx) => (
-                    <div 
-                      key={item.originalIndex} 
-                      className={`glass-hover p-4 space-y-3 transition-all duration-200 ${
-                        draggedEntry === item.originalIndex ? 'opacity-50 scale-95' : ''
-                      } ${
-                        dragOverEntry === item.originalIndex ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
-                      }`}
-                      style={{ cursor: 'grab' }}
-                      draggable
-                      onDragStart={(e) => handleEntryDragStart(e, item.originalIndex)}
-                      onDragOver={(e) => handleEntryDragOver(e, item.originalIndex)}
-                      onDragLeave={handleEntryDragLeave}
-                      onDrop={(e) => handleEntryDrop(e, item.originalIndex)}
-                      onDragEnd={handleEntryDragEnd}
-                    >
-                      <div className="space-y-2">
-                        {/* Entry Content Row - no case title here */}
-                        <div className="flex gap-3 items-stretch">
-                          {/* Drag Handle */}
-                          <div className="flex-shrink-0 flex items-center">
-                            <svg 
-                              className="w-4 h-4 cursor-grab" 
-                              style={{ color: 'var(--glass-text-muted)' }} 
-                              fill="none" 
-                              stroke="currentColor" 
-                              viewBox="0 0 24 24"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-                            </svg>
-                          </div>
-                      {/* Hours Column */}
-                      <div className="flex-shrink-0 w-20">
-                            {editingHours && editingIndex === item.originalIndex ? (
-                              <div className="glass p-3 text-center rounded-lg flex flex-col justify-center items-center space-y-1 h-full">
-                            <input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              value={editingHoursValue}
-                              onChange={(e) => setEditingHoursValue(e.target.value)}
-                              onBlur={saveHoursEdit}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  saveHoursEdit();
-                                } else if (e.key === 'Escape') {
-                                  e.preventDefault();
-                                  cancelHoursEdit();
-                                }
-                              }}
-                              className="glass-input text-center text-lg font-bold"
-                              style={{ 
-                                color: 'var(--glass-accent)',
-                                    width: '100%',
-                                    padding: '8px 4px',
-                                    minWidth: '60px',
-                                    maxWidth: '80px'
-                              }}
-                              autoFocus
-                            />
-                            <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
-                              hours
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div></div>
+                        <button
+                          onClick={() => createGroup(caseName)}
+                          className="glass-button glass-button-primary px-4 py-2 text-sm flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          Create Group
+                        </button>
+                      </div>
+
+                      {/* Groups with Entries */}
+                      <div className="space-y-4">
+                        {groups[caseName]?.sort((a, b) => a.order - b.order).map((group) => {
+                          const groupEntries = caseEntries.filter(item => item.group === group.id);
+                          return (
+                            <div key={group.id} className="group-container">
+                              {/* Group Header */}
+                              <div 
+                                className={`glass p-3 rounded-lg ${
+                                  draggedGroup === group.id ? 'opacity-50 scale-95' : ''
+                                } ${
+                                  dragOverGroup === group.id ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                                } ${
+                                  dragOverEntryGroup === group.id ? 'ring-2 ring-green-400 ring-opacity-50' : ''
+                                }`}
+                                style={{ cursor: 'grab' }}
+                                draggable
+                                onDragStart={(e) => handleGroupDragStart(e, group.id, caseName)}
+                                onDragOver={(e) => {
+                                  // Handle both group reordering and entry dropping
+                                  if (draggedGroup) {
+                                    handleGroupDragOver(e, group.id);
+                                  } else if (draggedEntry !== null) {
+                                    handleEntryDragOverGroup(e, group.id);
+                                  }
+                                }}
+                                onDragLeave={() => {
+                                  handleGroupDragLeave();
+                                  handleEntryDragLeaveGroup();
+                                }}
+                                onDrop={(e) => {
+                                  // Handle both group reordering and entry dropping
+                                  if (draggedGroup) {
+                                    handleGroupDrop(e, group.id, caseName);
+                                  } else if (draggedEntry !== null) {
+                                    handleEntryDropOnGroup(e, group.id, caseName);
+                                  }
+                                }}
+                                onDragEnd={handleGroupDragEnd}
+                              >
+                                <div className="flex items-center justify-between">
+                                  {/* Drag Handle */}
+                                  <div className="flex-shrink-0 flex items-center mr-2">
+                                    <svg 
+                                      className="w-4 h-4 cursor-grab" 
+                                      style={{ color: 'var(--glass-text-muted)' }} 
+                                      fill="none" 
+                                      stroke="currentColor" 
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1">
+                                    {editingGroup === group.id ? (
+                                      <input
+                                        type="text"
+                                        value={editingGroupTitle}
+                                        onChange={(e) => setEditingGroupTitle(e.target.value)}
+                                        onBlur={() => renameGroup(caseName, group.id, editingGroupTitle)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            renameGroup(caseName, group.id, editingGroupTitle);
+                                          } else if (e.key === 'Escape') {
+                                            cancelEditingGroup();
+                                          }
+                                        }}
+                                        className="glass-input text-sm font-medium w-full"
+                                        autoFocus
+                                      />
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <h5 
+                                          className="text-sm font-medium cursor-pointer hover:opacity-80" 
+                                          style={{ color: 'var(--glass-text)' }}
+                                          onClick={() => startEditingGroup(group.id, group.title)}
+                                        >
+                                          {group.title}
+                                        </h5>
+                                        <span className="text-xs px-2 py-1 glass rounded-full" style={{ color: 'var(--glass-text-secondary)' }}>
+                                          {groupEntries.length} entries
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {editingGroup !== group.id && (
+                                      <>
+                                        <button
+                                          onClick={() => startEditingGroup(group.id, group.title)}
+                                          className="glass-button p-1.5 text-xs"
+                                          title="Rename group"
+                                        >
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          onClick={() => deleteGroup(caseName, group.id)}
+                                          className="glass-button p-1.5 text-xs hover:bg-red-500/20"
+                                          title="Delete group"
+                                        >
+                                          <svg className="w-3 h-3" style={{ color: 'var(--glass-danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                          </svg>
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Group Entries */}
+                              {groupEntries.length > 0 && (
+                                <div className="ml-4 mt-2 space-y-1">
+                                  {groupEntries.map((item, idx) => (
+                                    <div 
+                                      key={item.originalIndex} 
+                                      className={`glass p-4 space-y-3 transition-all duration-200 ${
+                                        draggedEntry === item.originalIndex ? 'opacity-50 scale-95' : ''
+                                      } ${
+                                        dragOverEntry === item.originalIndex ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                                      }`}
+                                      style={{ cursor: 'grab' }}
+                                      draggable
+                                      onDragStart={(e) => handleEntryDragStart(e, item.originalIndex)}
+                                      onDragOver={(e) => handleEntryDragOver(e, item.originalIndex)}
+                                      onDragLeave={handleEntryDragLeave}
+                                      onDrop={(e) => handleEntryDrop(e, item.originalIndex)}
+                                      onDragEnd={handleEntryDragEnd}
+                                    >
+                                      <div className="space-y-2">
+                                        {/* Entry Content Row */}
+                                        <div className="flex gap-3 items-stretch">
+                                          {/* Drag Handle */}
+                                          <div className="flex-shrink-0 flex items-center">
+                                            <svg 
+                                              className="w-4 h-4 cursor-grab" 
+                                              style={{ color: 'var(--glass-text-muted)' }} 
+                                              fill="none" 
+                                              stroke="currentColor" 
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                                            </svg>
+                                          </div>
+                                          
+                                          {/* Hours Column */}
+                                          <div className="flex-shrink-0 w-20">
+                                            {editingHours && editingIndex === item.originalIndex ? (
+                                              <div className="glass p-3 text-center rounded-lg flex flex-col justify-center items-center space-y-1 h-full">
+                                                <input
+                                                  type="number"
+                                                  step="0.1"
+                                                  min="0"
+                                                  value={editingHoursValue}
+                                                  onChange={(e) => setEditingHoursValue(e.target.value)}
+                                                  onBlur={saveHoursEdit}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                      e.preventDefault();
+                                                      saveHoursEdit();
+                                                    } else if (e.key === 'Escape') {
+                                                      e.preventDefault();
+                                                      cancelHoursEdit();
+                                                    }
+                                                  }}
+                                                  className="glass-input text-center text-lg font-bold"
+                                                  style={{ 
+                                                    color: 'var(--glass-accent)',
+                                                    width: '100%',
+                                                    padding: '8px 4px',
+                                                    minWidth: '60px',
+                                                    maxWidth: '80px'
+                                                  }}
+                                                  autoFocus
+                                                />
+                                                <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                                                  hours
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div 
+                                                className="glass p-3 text-center rounded-lg flex flex-col justify-center cursor-pointer hover:bg-opacity-20 transition-all duration-200 h-full"
+                                                onClick={() => startEditingHours(item.originalIndex, item.hours)}
+                                                title="Click to edit hours"
+                                              >
+                                                <div className="text-lg font-bold" style={{ color: 'var(--glass-accent)' }}>
+                                                  {item.hours > 0 ? item.hours.toFixed(1) : '0.0'}
+                                                </div>
+                                                <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                                                  hours
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                          
+                                          {/* Entry Content */}
+                                          <div className={editingIndex === item.originalIndex && !editingHours ? "w-full" : "flex-1"} style={{ minWidth: '0' }}>
+                                            {editingIndex === item.originalIndex && !editingHours ? (
+                                              <div className="glass rounded-lg p-3 relative" style={{ width: '100%' }}>
+                                                <textarea
+                                                  value={editingText || entries[item.originalIndex]?.entry || ''}
+                                                  onChange={(e) => setEditingText(e.target.value)}
+                                                  onBlur={saveEdit}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                      e.preventDefault();
+                                                      saveEdit();
+                                                    }
+                                                  }}
+                                                  className="w-full bg-transparent border-none outline-none resize-both whitespace-pre-wrap"
+                                                  rows={5}
+                                                  autoFocus
+                                                  style={{ 
+                                                    color: 'var(--glass-text-secondary)',
+                                                    padding: '0',
+                                                    margin: '0',
+                                                    width: '100%',
+                                                    minWidth: '100%',
+                                                    maxWidth: '100%',
+                                                    minHeight: '120px',
+                                                    boxSizing: 'border-box'
+                                                  }}
+                                                />
+                                                
+                                                {/* AI Enhancement Button - Bottom Right */}
+                                                <button
+                                                  className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                                                  onClick={() => handleAIEnhancement(item.originalIndex)}
+                                                  title="AI Enhance Entry"
+                                                >
+                                                  <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div
+                                                className="cursor-pointer p-3 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 h-full relative"
+                                                onClick={() => startEditing(item.originalIndex, item.entry)}
+                                                style={{ width: '100%' }}
+                                              >
+                                                <p style={{ color: 'var(--glass-text-secondary)' }} className="whitespace-pre-wrap">
+                                                  {item.entry || 'No content'}
+                                                </p>
+                                                <p className="text-xs mt-2" style={{ color: 'var(--glass-text-secondary)' }}>
+                                                  Click to edit
+                                                </p>
+                                                
+                                                {/* AI Enhancement Button - Bottom Right for Display Mode */}
+                                                <button
+                                                  className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation(); // Prevent triggering the edit mode
+                                                    handleAIEnhancement(item.originalIndex);
+                                                  }}
+                                                  title="AI Enhance Entry"
+                                                >
+                                                  <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                                  </svg>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                          
+                                          {/* Delete Button */}
+                                          <div className="flex-shrink-0">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteEntry(item.originalIndex);
+                                              }}
+                                              className="glass-button p-2 hover:bg-red-500/20 transition-all duration-200 h-full flex items-center justify-center"
+                                              title="Delete entry"
+                                            >
+                                              <svg 
+                                                className="w-4 h-4" 
+                                                style={{ color: 'var(--glass-danger)' }} 
+                                                fill="none" 
+                                                stroke="currentColor" 
+                                                viewBox="0 0 24 24"
+                                              >
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                              </svg>
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ) : (
-                          <div 
-                                className="glass p-3 text-center rounded-lg flex flex-col justify-center cursor-pointer hover:bg-opacity-20 transition-all duration-200 h-full"
-                                onClick={() => startEditingHours(item.originalIndex, item.hours)}
-                            title="Click to edit hours"
-                          >
-                            <div className="text-lg font-bold" style={{ color: 'var(--glass-accent)' }}>
-                              {item.hours > 0 ? item.hours.toFixed(1) : '0.0'}
-                            </div>
-                            <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
-                              hours
-                            </div>
+                          );
+                        })}
+
+
+                        {/* Show message if no groups */}
+                        {(!groups[caseName] || groups[caseName].length === 0) && (
+                          <div className="text-center py-4" style={{ color: 'var(--glass-text-secondary)' }}>
+                            <p className="text-sm">No groups created yet</p>
+                            <p className="text-xs mt-1">Create groups to organize your billing entries</p>
                           </div>
                         )}
                       </div>
-                      
-                      {/* Entry Content */}
-                          <div className={editingIndex === item.originalIndex && !editingHours ? "w-full" : "flex-1"} style={{ minWidth: '0' }}>
-                            {editingIndex === item.originalIndex && !editingHours ? (
-                              <div className="glass rounded-lg p-3 relative" style={{ width: '100%' }}>
-                      <textarea
-                                  value={editingText || entries[item.originalIndex]?.entry || ''}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        onBlur={saveEdit}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            saveEdit();
-                          }
-                        }}
-                                  className="w-full bg-transparent border-none outline-none resize-both whitespace-pre-wrap"
-                          rows={5}
-                        autoFocus
-                          style={{ 
-                            color: 'var(--glass-text-secondary)',
-                            padding: '0',
-                            margin: '0',
-                            width: '100%',
-                            minWidth: '100%',
-                            maxWidth: '100%',
-                            minHeight: '120px',
-                            boxSizing: 'border-box'
-                          }}
-                        />
-                        
-                        {/* AI Enhancement Button - Bottom Right */}
-                        <button
-                          className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
-                          onClick={() => handleAIEnhancement(item.originalIndex)}
-                          title="AI Enhance Entry"
-                        >
-                          <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                          </svg>
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                              className="cursor-pointer p-3 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 h-full relative"
-                                onClick={() => startEditing(item.originalIndex, item.entry)}
-                                style={{ width: '100%' }}
-                      >
-                              <p style={{ color: 'var(--glass-text-secondary)' }} className="whitespace-pre-wrap">
-                            {item.entry || 'No content'}
-                              </p>
-                              <p className="text-xs mt-2" style={{ color: 'var(--glass-text-secondary)' }}>
-                                Click to edit
-                              </p>
-                              
-                              {/* AI Enhancement Button - Bottom Right for Display Mode */}
-                              <button
-                                className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
-                                onClick={(e) => {
-                                  e.stopPropagation(); // Prevent triggering the edit mode
-                                  handleAIEnhancement(item.originalIndex);
-                                }}
-                                title="AI Enhance Entry"
-                              >
-                                <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                                </svg>
-                              </button>
-                      </div>
-                    )}
-                  </div>
-                      
-                      {/* Delete Button */}
-                      <div className="flex-shrink-0">
-                  <button
-                            className="glass-button p-2 hover:bg-red-500/20 transition-colors duration-200 flex items-center justify-center h-full"
-                    onClick={() => deleteEntry(item.originalIndex)}
-                    title="Delete entry"
-                  >
-                            <svg className="w-4 h-4" style={{ color: 'var(--glass-danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                  </button>
-                      </div>
-                    </div>
-                  </div>
-                    </div>
-                      ))}
                     </div>
                   )}
+                    
+
+                  {/* Ungrouped Entries Section */}
+                  {!collapsedCases.has(caseName) && (
+                    <div className="mt-6">
+                      <div 
+                        className={`glass p-4 rounded-lg border-2 border-dashed ${
+                          dragOverEntryGroup === 'ungrouped' ? 'ring-2 ring-green-400 ring-opacity-50 border-green-400' : 'border-gray-400 border-opacity-30'
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          setDragOverEntryGroup('ungrouped');
+                        }}
+                        onDragLeave={() => setDragOverEntryGroup(null)}
+                        onDrop={(e) => handleEntryDropOnUngrouped(e, caseName)}
+                      >
+                        <div className="text-center mb-3" style={{ color: 'var(--glass-text-secondary)' }}>
+                          <p className="text-sm font-medium">New Entries (Staging Area)</p>
+                          <p className="text-xs mt-1">New entries appear here - drag them to groups to organize</p>
+                        </div>
+                        
+                        {/* Show ungrouped entries */}
+                        <div className="space-y-1">
+                          {caseEntries.filter(item => !item.group).map((item, idx) => (
+                            <div 
+                              key={item.originalIndex} 
+                              className={`glass p-4 space-y-3 transition-all duration-200 ${
+                                draggedEntry === item.originalIndex ? 'opacity-50 scale-95' : ''
+                              } ${
+                                dragOverEntry === item.originalIndex ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                              }`}
+                              style={{ cursor: 'grab' }}
+                              draggable
+                              onDragStart={(e) => handleEntryDragStart(e, item.originalIndex)}
+                              onDragOver={(e) => handleEntryDragOver(e, item.originalIndex)}
+                              onDragLeave={handleEntryDragLeave}
+                              onDrop={(e) => handleEntryDrop(e, item.originalIndex)}
+                              onDragEnd={handleEntryDragEnd}
+                            >
+                              <div className="space-y-2">
+                                {/* Entry Content Row */}
+                                <div className="flex gap-3 items-stretch">
+                                  {/* Drag Handle */}
+                                  <div className="flex-shrink-0 flex items-center">
+                                    <svg 
+                                      className="w-4 h-4 cursor-grab" 
+                                      style={{ color: 'var(--glass-text-muted)' }} 
+                                      fill="none" 
+                                      stroke="currentColor" 
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                                    </svg>
+                                  </div>
+                                  
+                                  {/* Hours Column */}
+                                  <div className="flex-shrink-0 w-20">
+                                    {editingHours && editingIndex === item.originalIndex ? (
+                                      <div className="glass p-3 text-center rounded-lg flex flex-col justify-center items-center space-y-1 h-full">
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          min="0"
+                                          value={editingHoursValue}
+                                          onChange={(e) => setEditingHoursValue(e.target.value)}
+                                          onBlur={saveHoursEdit}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              saveHoursEdit();
+                                            } else if (e.key === 'Escape') {
+                                              e.preventDefault();
+                                              cancelHoursEdit();
+                                            }
+                                          }}
+                                          className="glass-input text-center text-lg font-bold"
+                                          style={{ 
+                                            color: 'var(--glass-accent)',
+                                            width: '100%',
+                                            padding: '8px 4px',
+                                            minWidth: '60px',
+                                            maxWidth: '80px'
+                                          }}
+                                          autoFocus
+                                        />
+                                        <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                                          hours
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div 
+                                        className="glass p-3 text-center rounded-lg flex flex-col justify-center cursor-pointer hover:bg-opacity-20 transition-all duration-200 h-full"
+                                        onClick={() => startEditingHours(item.originalIndex, item.hours)}
+                                        title="Click to edit hours"
+                                      >
+                                        <div className="text-lg font-bold" style={{ color: 'var(--glass-accent)' }}>
+                                          {item.hours > 0 ? item.hours.toFixed(1) : '0.0'}
+                                        </div>
+                                        <div className="text-xs" style={{ color: 'var(--glass-text-secondary)' }}>
+                                          hours
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Entry Content */}
+                                  <div className={editingIndex === item.originalIndex && !editingHours ? "w-full" : "flex-1"} style={{ minWidth: '0' }}>
+                                    {editingIndex === item.originalIndex && !editingHours ? (
+                                      <div className="glass rounded-lg p-3 relative" style={{ width: '100%' }}>
+                                        <textarea
+                                          value={editingText || entries[item.originalIndex]?.entry || ''}
+                                          onChange={(e) => setEditingText(e.target.value)}
+                                          onBlur={saveEdit}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                              e.preventDefault();
+                                              saveEdit();
+                                            }
+                                          }}
+                                          className="w-full bg-transparent border-none outline-none resize-both whitespace-pre-wrap"
+                                          rows={5}
+                                          autoFocus
+                                          style={{ 
+                                            color: 'var(--glass-text-secondary)',
+                                            padding: '0',
+                                            margin: '0',
+                                            width: '100%',
+                                            minWidth: '100%',
+                                            maxWidth: '100%',
+                                            minHeight: '120px',
+                                            boxSizing: 'border-box'
+                                          }}
+                                        />
+                                        
+                                        {/* AI Enhancement Button - Bottom Right */}
+                                        <button
+                                          className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                                          onClick={() => handleAIEnhancement(item.originalIndex)}
+                                          title="AI Enhance Entry"
+                                        >
+                                          <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div
+                                        className="cursor-pointer p-3 glass rounded-lg hover:bg-opacity-20 transition-all duration-200 h-full relative"
+                                        onClick={() => startEditing(item.originalIndex, item.entry)}
+                                        style={{ width: '100%' }}
+                                      >
+                                        <p style={{ color: 'var(--glass-text-secondary)' }} className="whitespace-pre-wrap">
+                                          {item.entry || 'No content'}
+                                        </p>
+                                        <p className="text-xs mt-2" style={{ color: 'var(--glass-text-secondary)' }}>
+                                          Click to edit
+                                        </p>
+                                        
+                                        {/* AI Enhancement Button - Bottom Right for Display Mode */}
+                                        <button
+                                          className="absolute bottom-2 right-2 p-1.5 glass rounded-full hover:bg-blue-500/20 transition-colors duration-200 opacity-70 hover:opacity-100"
+                                          onClick={(e) => {
+                                            e.stopPropagation(); // Prevent triggering the edit mode
+                                            handleAIEnhancement(item.originalIndex);
+                                          }}
+                                          title="AI Enhance Entry"
+                                        >
+                                          <svg className="w-3.5 h-3.5" style={{ color: 'var(--glass-accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                          </svg>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Delete Button */}
+                                  <div className="flex-shrink-0">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteEntry(item.originalIndex);
+                                      }}
+                                      className="glass-button p-2 hover:bg-red-500/20 transition-all duration-200 h-full flex items-center justify-center"
+                                      title="Delete entry"
+                                    >
+                                      <svg 
+                                        className="w-4 h-4" 
+                                        style={{ color: 'var(--glass-danger)' }} 
+                                        fill="none" 
+                                        stroke="currentColor" 
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          
+                          {/* Show message if no ungrouped entries */}
+                          {caseEntries.filter(item => !item.group).length === 0 && (
+                            <div className="text-center py-4" style={{ color: 'var(--glass-text-secondary)' }}>
+                              <p className="text-sm">No new entries</p>
+                              <p className="text-xs mt-1">Create entries above to see them here</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add Entry Section for this case */}
+                  <div className="mt-4 pt-4 border-t border-gray-200 border-opacity-20">
+                    {addingEntryToCase === caseName ? (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--glass-text-secondary)' }}>
+                            Brief Billing Description
+                          </label>
+                          <textarea
+                            className="glass-input glass-textarea w-full"
+                            placeholder="Describe the work performed or time spent..."
+                            value={newEntryText}
+                            onChange={(e) => setNewEntryText(e.target.value)}
+                            rows={3}
+                            autoFocus
+                          />
+                        </div>
+
+                        
+                        {/* Entry Generation Buttons for Case */}
+                        <div className="grid grid-cols-3 gap-3">
+                          {/* Manual Entry Button */}
+                          <button
+                            onClick={() => handleManualEntryForCase(caseName)}
+                            className="glass-button p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span className="text-sm">Manual Entry</span>
+                          </button>
+
+                          {/* AI Generate Button */}
+                          <button
+                            onClick={() => handleAIGenerateForCase(caseName)}
+                            disabled={caseEntryLoading || !newEntryText.trim()}
+                            className="glass-button glass-button-primary p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                          >
+                            {caseEntryLoading ? (
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                              </svg>
+                            )}
+                            <span className="text-sm">{caseEntryLoading ? 'Generating...' : 'AI Generate'}</span>
+                          </button>
+
+                          {/* Templates Button */}
+                          <button
+                            onClick={() => setCaseEntryTemplates(true)}
+                            className="glass-button p-3 rounded-lg hover:bg-opacity-20 transition-all duration-200 flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span className="text-sm">Templates</span>
+                          </button>
+                        </div>
+
+                        {/* Cancel Button */}
+                        <div className="flex justify-end">
+                          <button
+                            onClick={cancelAddingEntryToCase}
+                            className="glass-button px-4 py-2 text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => startAddingEntryToCase(caseName)}
+                        className="w-full glass-button flex items-center justify-center gap-2 py-2 px-4 text-sm font-medium transition-all duration-200 hover:bg-opacity-20"
+                        style={{ 
+                          color: 'var(--glass-accent)',
+                          borderColor: 'var(--glass-accent)',
+                          borderWidth: '1px',
+                          borderStyle: 'solid'
+                        }}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span>Add Entry to {caseName}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )}
