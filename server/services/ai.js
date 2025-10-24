@@ -192,6 +192,11 @@ Output: Single billing entry line without time estimate
       const flaggedWords = wordFlagService.checkText(entryText);
       let wordFlagWarning = '';
       
+      console.log('🔍 AI Service - Word flagging debug:', {
+        flaggedWordsCount: flaggedWords.length,
+        flaggedWords: flaggedWords.map(f => ({ word: f.word, count: f.count, alternatives: f.alternatives }))
+      });
+      
       if (flaggedWords.length > 0) {
         wordFlagWarning = '\n\n⚠️ IMPORTANT WORD FLAGGING NOTICE:\n';
         wordFlagWarning += 'The client has flagged certain words. Please avoid using these words and use the suggested alternatives instead:\n\n';
@@ -203,6 +208,8 @@ Output: Single billing entry line without time estimate
         });
         
         wordFlagWarning += 'Please rewrite your enhancement suggestions to use the suggested alternatives instead of the flagged words.\n';
+        
+        console.log('⚠️ AI Service - Word flag warning generated:', wordFlagWarning);
       }
 
       // Create enhancement-specific prompt
@@ -212,6 +219,8 @@ Entry: "${entryText}"
 Case: ${caseName || 'Not specified'}
 
 ${templateSuggestions}
+
+${wordFlagWarning}
 
 Return ONLY this JSON format (no other text):
 {

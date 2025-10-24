@@ -28,7 +28,7 @@ export default function handler(req, res) {
 
       res.status(200).json({
         success: true,
-        updatedText: updatedText
+        newText: updatedText
       });
     } catch (error) {
       console.error('Error replacing word:', error);

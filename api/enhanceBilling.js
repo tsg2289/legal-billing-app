@@ -1,11 +1,14 @@
 import OpenAI from 'openai';
-import { getSuggestedTemplates, getTemplateSuggestionsForPrompt, checkWordFlags } from '../server/services/ai.js';
+import { getSuggestedTemplates, getTemplateSuggestionsForPrompt, anonymizeText } from '../server/services/ai.js';
+import wordFlagService from '../server/services/wordFlagService.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export default async function handler(req, res) {
+  console.log('🚀 enhanceBilling API called with updated code');
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -42,9 +45,39 @@ export default async function handler(req, res) {
       } : null
     });
 
+<<<<<<< HEAD
     // Check for flagged words (for logging purposes)
     const wordFlags = await checkWordFlags(entryText);
     const hasFlaggedWords = wordFlags && wordFlags.length > 0;
+=======
+    // Check for flagged words
+    const flaggedWords = wordFlagService.checkText(entryText);
+    let wordFlagWarning = '';
+    
+    console.log('🔍 Word flagging debug:', {
+      flaggedWordsCount: flaggedWords.length,
+      flaggedWords: flaggedWords.map(f => ({ word: f.word, count: f.count, alternatives: f.alternatives }))
+    });
+    
+    if (flaggedWords.length > 0) {
+      wordFlagWarning = '\n\n⚠️ IMPORTANT WORD FLAGGING NOTICE:\n';
+      wordFlagWarning += 'The client has flagged certain words. Please avoid using these words and use the suggested alternatives instead:\n\n';
+      
+      flaggedWords.forEach(flag => {
+        wordFlagWarning += `- AVOID: "${flag.word}" (appears ${flag.count} time${flag.count > 1 ? 's' : ''})\n`;
+        wordFlagWarning += `  REASON: ${flag.reason}\n`;
+        wordFlagWarning += `  SUGGESTED ALTERNATIVES: ${flag.alternatives.join(', ')}\n\n`;
+      });
+      
+      wordFlagWarning += 'Please rewrite your enhancement suggestions to use the suggested alternatives instead of the flagged words.\n';
+      
+      console.log('⚠️ Word flag warning generated:', wordFlagWarning);
+    }
+    
+    // Anonymize text if needed
+    const anonymizedText = flaggedWords.length > 0 ? await anonymizeText(entryText) : entryText;
+    const isAnonymized = anonymizedText !== entryText;
+>>>>>>> restore-bcfea3c
 
     // Get template context for AI
     const templateContext = getTemplateSuggestionsForPrompt(templateSuggestions, entryText);
@@ -62,6 +95,8 @@ CASE CONTEXT:
 
 TEMPLATE CONTEXT:
 ${templateContext}
+
+${wordFlagWarning}
 
 ENHANCEMENT REQUIREMENTS:
 1. Analyze the current entry and understand its legal context
@@ -115,6 +150,11 @@ Focus on making each suggestion distinct and valuable while staying true to the 
       promptLength: prompt.length,
       timestamp: new Date().toISOString()
     });
+    
+    // Debug: Log the full prompt for word flagging issues
+    if (flaggedWords.length > 0) {
+      console.log('🔍 Full prompt with word flagging:', prompt);
+    }
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
@@ -185,6 +225,7 @@ Focus on making each suggestion distinct and valuable while staying true to the 
         originalLength: entryText.length,
         hasFlaggedWords: hasFlaggedWords,
         templateContext: templateSuggestions?.length || 0,
+        flaggedWords: flaggedWords.length,
         tokensUsed: completion.usage?.total_tokens || 0
       }
     });
